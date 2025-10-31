@@ -173,6 +173,15 @@ async def tocar_proxima_musica(vc, guild_id, ctx):
         await tocar_proxima_musica(vc, guild_id, ctx)
 
 
+# --- FUNÇÃO DE VALIDAÇÃO DE CANAL DE TEXTO ---
+def validar_canal(ctx):
+    """Valida se o comando foi enviado no canal de texto permitido."""
+    ALLOWED_CHANNEL_ID = int(os.getenv('CHAT_JUKEBOX', 0))
+    if ctx.channel.id != ALLOWED_CHANNEL_ID:
+        return False
+    return True
+
+
 # --- EVENTOS DO BOT ---
 @bot.event
 async def on_ready():
@@ -221,6 +230,10 @@ async def reboot_command(ctx):
 
 @bot.command(name='play')
 async def play(ctx, arg: str, *args):
+    if not validar_canal(ctx):
+        await ctx.send("O Animal, use o canal correto para o comando `!play`.")
+        return
+
     if not ctx.author.voice:
         logging.warning(f'Comando "!play" de {ctx.author.name} ignorado, usuário não está em um canal de voz.')
         await ctx.send("Você precisa estar em um canal de voz para tocar música.")
@@ -355,5 +368,18 @@ async def check_bitrate(ctx):
     else:
         await ctx.send("Você precisa estar em um canal de voz para verificar o bitrate.")
 
+
+@bot.command(name='help')
+async def help_command(ctx):
+    """Lista todos os comandos disponíveis e suas funções."""
+    help_text = "**Lista de Comandos:**\n"
+    help_text += "`!reboot` - Reinicia o bot e reinstala as dependências.\n"
+    help_text += "`!play <url>` - Toca uma música ou adiciona à fila.\n"
+    help_text += "`!stop` - Para a reprodução atual.\n"
+    help_text += "`!leave` - Faz o bot sair do canal de voz.\n"
+    help_text += "`!skip` - Pula a música atual.\n"
+    help_text += "`!check_bitrate` - Mostra o bitrate do canal de voz atual.\n"
+
+    await ctx.send(help_text)
 
 bot.run(TOKEN)
