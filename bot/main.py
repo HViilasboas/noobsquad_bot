@@ -39,6 +39,7 @@ bot = commands.Bot(command_prefix='!', intents=intents, heartbeat_timeout=60.0, 
 # Criar instância do scheduler
 scheduler = MonitorScheduler(bot)
 
+
 # --- INICIALIZAÇÃO DO BANCO DE DADOS ---
 def setup_database():
     """Inicializa a conexão com o banco de dados"""
@@ -49,6 +50,7 @@ def setup_database():
     except Exception as e:
         logging.error(f"Erro ao inicializar banco de dados: {e}")
         raise e
+
 
 # --- REGISTRAR OS COGS ---
 async def setup_cogs():
@@ -65,11 +67,13 @@ async def setup_cogs():
 
     logging.info("Cogs registrados com sucesso!")
 
+
 @bot.event
 async def on_ready():
     """Evento disparado quando o bot está pronto e conectado"""
     await setup_cogs()  # Registra os Cogs quando o bot iniciar
     logging.info(f'Bot conectado como {bot.user.name}')
+
     try:
         # Reconectar ao canal de voz se o bot reiniciar
         reboot_channel = bot.get_channel(REBOOT_CHANNEL_ID)
@@ -78,10 +82,23 @@ async def on_ready():
     except Exception as e:
         logging.error(f"Erro ao enviar mensagem de reboot: {e}")
 
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Trata erros de comando."""
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send(f"🤔 Comando não encontrado. Digite `!ajuda` para ver a lista de comandos disponíveis.")
+    else:
+        # Para outros erros, loga e informa o usuário
+        logging.error(f"Ocorreu um erro no comando '{ctx.command}': {error}")
+        await ctx.send("❌ Ocorreu um erro ao processar o comando. Por favor, tente novamente.")
+
+
 @bot.event
 async def on_error(event, *args, **kwargs):
     """Tratamento global de erros"""
     logging.error(f"Erro no evento {event}: ", exc_info=True)
+
 
 # Cleanup quando o bot for desligado
 def cleanup():
@@ -92,6 +109,7 @@ def cleanup():
         logging.info("Recursos do bot liberados com sucesso.")
     except Exception as e:
         logging.error(f"Erro ao liberar recursos: {e}")
+
 
 # Iniciar o bot
 try:

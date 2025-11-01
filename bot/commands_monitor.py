@@ -14,12 +14,13 @@ class MonitorCommands(commands.Cog):
         # Inicializar o monitor de forma assíncrona quando o Cog é carregado
         bot.loop.create_task(self._initialize_monitor())
 
-    async def _ensure_user_profile(self, user_id: str):
+    async def _ensure_user_profile(self, author: discord.User):
         """Garante que um perfil de usuário exista no banco de dados."""
+        user_id = str(author.id)
         profile = await db.get_user_profile(user_id)
         if not profile:
-            await db.create_user_profile(user_id)
-            logging.info(f"Perfil de usuário criado para {user_id}")
+            await db.create_user_profile(user_id, author.name)
+            logging.info(f"Perfil de usuário criado para {user_id} ({author.name})")
 
     async def _initialize_monitor(self):
         """Inicializa o monitor"""
@@ -36,7 +37,7 @@ class MonitorCommands(commands.Cog):
         Uso: !monitorar_youtube <url_do_canal ou @nome>"""
         try:
             # Garante que o perfil do usuário existe
-            await self._ensure_user_profile(str(ctx.author.id))
+            await self._ensure_user_profile(ctx.author)
 
             channel_id = self.monitor.extract_youtube_channel_id(channel_input)
             if not channel_id:
@@ -78,7 +79,7 @@ class MonitorCommands(commands.Cog):
         Uso: !monitorar_twitch <nome_do_canal>"""
         try:
             # Garante que o perfil do usuário existe
-            await self._ensure_user_profile(str(ctx.author.id))
+            await self._ensure_user_profile(ctx.author)
 
             channel_info = await self.monitor.validate_twitch_channel(channel_name)
             if not channel_info:
