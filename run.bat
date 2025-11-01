@@ -1,35 +1,15 @@
 @echo off
 setlocal
 
-:start
-echo Iniciando rotina de manutencao...
-if exist ".venv" (
-    echo Removendo ambiente virtual...
-    rmdir /s /q ".venv"
-)
+REM Adiciona o diretório atual ao PYTHONPATH
+set PYTHONPATH=%CD%
 
-echo Criando novo ambiente virtual...
-python -m venv .venv
+REM Ativa o ambiente virtual
+call .venv\Scripts\activate.bat
 
-echo Ativando e instalando dependencias...
-call .venv\Scripts\activate
-pip install -r requirements.txt
+REM Executa o bot
+python bot/main.py
 
-echo Iniciando o bot...
-start /b python main.py
-set BOT_PID=%!
-echo Bot iniciado com PID: %BOT_PID%!
-
-:monitor
-if exist "reboot.flag" (
-    echo Sinal de reinicializacao detectado.
-    del reboot.flag
-    taskkill /pid %BOT_PID%
-    timeout /t 5 > nul
-    goto start
-)
-timeout /t 5 > nul
-goto monitor
-
-endlocal
-pause
+REM Se o bot parar, aguarda 5 segundos e reinicia
+timeout /t 5
+goto :start

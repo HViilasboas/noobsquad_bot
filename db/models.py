@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 
@@ -28,11 +28,11 @@ class MonitoredChannel:
     platform: str  # 'youtube' ou 'twitch'
     channel_id: str
     channel_name: str
+    added_by: str  # Discord user ID
     last_video_id: Optional[str] = None
     last_stream_id: Optional[str] = None
     is_live: bool = False
-    added_by: str  # Discord user ID
-    added_at: datetime = datetime.utcnow()
+    added_at: datetime = datetime.now(UTC)  # Usando UTC de forma explícita
 
 
 @dataclass
@@ -40,10 +40,21 @@ class UserProfile:
     """Representa o perfil de um usuário no MongoDB"""
     discord_id: str
     username: str
-    music_history: List[Song]
-    music_preferences: List[MusicPreference]
-    monitored_channels: List[MonitoredChannel]
-    created_at: datetime
+    music_history: List[Song] = None  # Será inicializado como lista vazia
+    music_preferences: List[MusicPreference] = None  # Será inicializado como lista vazia
+    monitored_channels: List[MonitoredChannel] = None  # Será inicializado como lista vazia
+    created_at: datetime = None  # Será inicializado com datetime.now(UTC)
+
+    def __post_init__(self):
+        """Inicializa campos com valores padrão se necessário"""
+        if self.music_history is None:
+            self.music_history = []
+        if self.music_preferences is None:
+            self.music_preferences = []
+        if self.monitored_channels is None:
+            self.monitored_channels = []
+        if self.created_at is None:
+            self.created_at = datetime.now(UTC)
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'UserProfile':

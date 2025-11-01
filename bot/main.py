@@ -1,22 +1,16 @@
 import discord
-import yt_dlp
-import os
-import asyncio
 import logging
 from datetime import datetime
 from discord.ext import commands
-from collections import deque
-import re
-import urllib.parse
-import shutil
 
 from config.settings import (
     DISCORD_TOKEN,
-    REBOOT_CHANNEL_ID,
-    CHAT_JUKEBOX,
-    EQUALIZER_PRESETS
+    REBOOT_CHANNEL_ID
 )
 from db.database import db
+from bot.commands import MusicCommands, HelpCommands
+from bot.commands_monitor import MonitorCommands
+from bot.scheduler import MonitorScheduler
 
 # --- CONFIGURAÇÃO DE LOGGING ---
 log_filename = datetime.now().strftime('bot_log_%Y-%m-%d.log')
@@ -42,7 +36,67 @@ intents.message_content = True
 intents.voice_states = True
 bot = commands.Bot(command_prefix='!', intents=intents, heartbeat_timeout=60.0, help_command=None)
 
-# --- FILA DE REPRODUÇÃO E VARIÁVEIS GLOBAIS ---
-play_queue = {}
-last_played_info = {}
-autoplay_enabled = {}
+# Criar instância do scheduler
+scheduler = MonitorScheduler(bot)
+
+# --- INICIALIZAÇÃO DO BANCO DE DADOS ---
+def setup_database():
+    """Inicializa a conexão com o banco de dados"""
+    try:
+        db.connect()
+        db.initialize_collections()  # Inicializa as coleções e índices
+        logging.info("Banco de dados inicializado com sucesso!")
+    except Exception as e:
+        logging.error(f"Erro ao inicializar banco de dados: {e}")
+        raise e
+
+# --- REGISTRAR OS COGS ---
+async def setup_cogs():
+    """Configura os Cogs do bot"""
+    # Garante que o banco de dados está conectado antes de registrar os Cogs
+    setup_database()
+
+    await bot.add_cog(MusicCommands(bot))
+    await bot.add_cog(MonitorCommands(bot))
+    await bot.add_cog(HelpCommands(bot))
+
+    # Iniciar o scheduler de monitoramento
+    await scheduler.start()
+
+    logging.info("Cogs registrados com sucesso!")
+
+@bot.event
+async def on_ready():
+    """Evento disparado quando o bot está pronto e conectado"""
+    await setup_cogs()  # Registra os Cogs quando o bot iniciar
+    logging.info(f'Bot conectado como {bot.user.name}')
+    try:
+        # Reconectar ao canal de voz se o bot reiniciar
+        reboot_channel = bot.get_channel(REBOOT_CHANNEL_ID)
+        if reboot_channel:
+            await reboot_channel.send("🔄 Bot reiniciado e pronto para uso!")
+    except Exception as e:
+        logging.error(f"Erro ao enviar mensagem de reboot: {e}")
+
+@bot.event
+async def on_error(event, *args, **kwargs):
+    """Tratamento global de erros"""
+    logging.error(f"Erro no evento {event}: ", exc_info=True)
+
+# Cleanup quando o bot for desligado
+def cleanup():
+    """Limpa recursos ao desligar o bot"""
+    try:
+        scheduler.stop()  # Para as tasks de monitoramento
+        db.close()
+        logging.info("Recursos do bot liberados com sucesso.")
+    except Exception as e:
+        logging.error(f"Erro ao liberar recursos: {e}")
+
+# Iniciar o bot
+try:
+    bot.run(DISCORD_TOKEN)
+except Exception as e:
+    logging.error(f"Erro ao iniciar o bot: {e}")
+finally:
+    cleanup()

@@ -10,12 +10,15 @@ class Database:
     def __init__(self):
         self.client = None
         self.db = None
+        self.user_profiles = None  # Referência para a coleção user_profiles
 
     def connect(self):
         """Estabelece conexão com o MongoDB"""
         try:
             self.client = MongoClient(MONGODB_URI)
             self.db = self.client[DATABASE_NAME]
+            # Inicializa a coleção user_profiles
+            self.user_profiles = self.db.user_profiles
             # Testa a conexão
             self.client.server_info()
             logging.info("Conexão com MongoDB estabelecida com sucesso!")
@@ -32,12 +35,10 @@ class Database:
     async def create_user_profile(self, discord_id: str, username: str):
         """Cria um novo perfil de usuário se não existir"""
         try:
+            # Criamos um novo perfil - os valores padrão serão inicializados pelo __post_init__
             profile = UserProfile(
                 discord_id=discord_id,
-                username=username,
-                music_history=[],
-                music_preferences=[],
-                created_at=datetime.utcnow()
+                username=username
             )
 
             result = self.db.user_profiles.update_one(
@@ -168,7 +169,7 @@ class Database:
         """Adiciona um canal para monitoramento"""
         try:
             # Primeiro verifica se o canal já está sendo monitorado
-            result = await self.db.user_profiles.find_one({
+            result = self.db.user_profiles.find_one({
                 "discord_id": discord_id,
                 "monitored_channels": {
                     "$elemMatch": {
@@ -182,7 +183,7 @@ class Database:
                 return False  # Canal já está sendo monitorado
 
             # Adiciona o novo canal
-            result = await self.db.user_profiles.update_one(
+            result = self.db.user_profiles.update_one(
                 {"discord_id": discord_id},
                 {"$push": {"monitored_channels": channel.__dict__}}
             )
@@ -213,7 +214,7 @@ class Database:
     async def update_channel_last_video(self, discord_id: str, channel_id: str, video_id: str) -> bool:
         """Atualiza o ID do último vídeo de um canal do YouTube"""
         try:
-            result = await self.db.user_profiles.update_one(
+            result = self.db.user_profiles.update_one(
                 {
                     "discord_id": discord_id,
                     "monitored_channels": {
@@ -237,7 +238,7 @@ class Database:
     async def update_channel_stream_status(self, discord_id: str, channel_id: str, stream_id: str) -> bool:
         """Atualiza o status de live de um canal da Twitch"""
         try:
-            result = await self.db.user_profiles.update_one(
+            result = self.db.user_profiles.update_one(
                 {
                     "discord_id": discord_id,
                     "monitored_channels": {
@@ -259,19 +260,32 @@ class Database:
             logging.error(f"Erro ao atualizar status de live: {str(e)}")
             return False
 
-    async def get_all_profiles_with_monitored_channels(self) -> List[UserProfile]:
-        """Retorna todos os perfis que têm canais monitorados"""
+    async def get_profiles_with_monitored_channels(self) -> List[UserProfile]:
+        """Retorna todos os perfis que possuem canais monitorados"""
         try:
             profiles = []
-            cursor = self.db.user_profiles.find(
+            cursor = self.user_profiles.find(
                 {"monitored_channels": {"$exists": True, "$ne": []}}
             )
-            async for doc in cursor:
+
+            # Converter o cursor em lista de forma síncrona
+            for doc in cursor:
                 profiles.append(UserProfile.from_dict(doc))
+
             return profiles
         except Exception as e:
             logging.error(f"Erro ao buscar perfis com canais monitorados: {str(e)}")
             return []
+
+    def initialize_collections(self):
+        """Inicializa as coleções necessárias se não existirem"""
+        try:
+            # Cria índices necessários
+            self.user_profiles.create_index("discord_id", unique=True)
+            logging.info("Índices do banco de dados criados/atualizados com sucesso!")
+        except Exception as e:
+            logging.error(f"Erro ao inicializar coleções: {str(e)}")
+            raise e
 
 
 # Instância global do banco de dados
