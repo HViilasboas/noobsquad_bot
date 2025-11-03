@@ -24,15 +24,51 @@ class MusicPreference:
 
 @dataclass
 class MonitoredChannel:
-    """Representa um canal monitorado (YouTube ou Twitch)"""
+    """Representa um canal monitorado (YouTube ou Twitch) como documento próprio
+
+    Agora existe uma coleção separada `monitored_channels` no banco. Cada documento
+    armazena a lista de `subscribers` (IDs de Discord) que reclamam este canal.
+    """
     platform: str  # 'youtube' ou 'twitch'
     channel_id: str
     channel_name: str
-    added_by: str  # Discord user ID
+    added_by: Optional[str] = None  # Discord user ID who first added the channel
     last_video_id: Optional[str] = None
     last_stream_id: Optional[str] = None
     is_live: bool = False
     added_at: datetime = datetime.now(UTC)  # Usando UTC de forma explícita
+    subscribers: Optional[List[str]] = None
+
+    def __post_init__(self):
+        if self.subscribers is None:
+            self.subscribers = []
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'MonitoredChannel':
+        return cls(
+            platform=data.get('platform'),
+            channel_id=data.get('channel_id'),
+            channel_name=data.get('channel_name'),
+            added_by=data.get('added_by'),
+            last_video_id=data.get('last_video_id'),
+            last_stream_id=data.get('last_stream_id'),
+            is_live=data.get('is_live', False),
+            added_at=data.get('added_at', datetime.now(UTC)),
+            subscribers=data.get('subscribers', [])
+        )
+
+    def to_dict(self) -> Dict:
+        return {
+            'platform': self.platform,
+            'channel_id': self.channel_id,
+            'channel_name': self.channel_name,
+            'added_by': self.added_by,
+            'last_video_id': self.last_video_id,
+            'last_stream_id': self.last_stream_id,
+            'is_live': self.is_live,
+            'added_at': self.added_at,
+            'subscribers': self.subscribers or []
+        }
 
 
 @dataclass
@@ -42,7 +78,6 @@ class UserProfile:
     username: str
     music_history: List[Song] = None  # Será inicializado como lista vazia
     music_preferences: List[MusicPreference] = None  # Será inicializado como lista vazia
-    monitored_channels: List[MonitoredChannel] = None  # Será inicializado como lista vazia
     created_at: datetime = None  # Será inicializado com datetime.now(UTC)
 
     def __post_init__(self):
@@ -51,8 +86,6 @@ class UserProfile:
             self.music_history = []
         if self.music_preferences is None:
             self.music_preferences = []
-        if self.monitored_channels is None:
-            self.monitored_channels = []
         if self.created_at is None:
             self.created_at = datetime.now(UTC)
 
@@ -79,19 +112,7 @@ class UserProfile:
                     last_updated=pref['last_updated']
                 ) for pref in data.get('music_preferences', [])
             ],
-            monitored_channels=[
-                MonitoredChannel(
-                    platform=channel['platform'],
-                    channel_id=channel['channel_id'],
-                    channel_name=channel['channel_name'],
-                    last_video_id=channel.get('last_video_id'),
-                    last_stream_id=channel.get('last_stream_id'),
-                    is_live=channel.get('is_live', False),
-                    added_by=channel['added_by'],
-                    added_at=channel['added_at']
-                ) for channel in data.get('monitored_channels', [])
-            ],
-            created_at=data['created_at']
+            created_at=data.get('created_at')
         )
 
     def to_dict(self) -> Dict:
@@ -115,18 +136,6 @@ class UserProfile:
                     'count': pref.count,
                     'last_updated': pref.last_updated
                 } for pref in self.music_preferences
-            ],
-            'monitored_channels': [
-                {
-                    'platform': channel.platform,
-                    'channel_id': channel.channel_id,
-                    'channel_name': channel.channel_name,
-                    'last_video_id': channel.last_video_id,
-                    'last_stream_id': channel.last_stream_id,
-                    'is_live': channel.is_live,
-                    'added_by': channel.added_by,
-                    'added_at': channel.added_at
-                } for channel in self.monitored_channels
             ],
             'created_at': self.created_at
         }

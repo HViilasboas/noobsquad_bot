@@ -11,14 +11,16 @@ class Database:
         self.client = None
         self.db = None
         self.user_profiles = None  # Referência para a coleção user_profiles
+        self.monitored_channels = None  # Nova coleção para canais monitorados
 
     def connect(self):
         """Estabelece conexão com o MongoDB"""
         try:
             self.client = MongoClient(MONGODB_URI)
             self.db = self.client[DATABASE_NAME]
-            # Inicializa a coleção user_profiles
+            # Inicializa as coleções
             self.user_profiles = self.db.user_profiles
+            self.monitored_channels = self.db.monitored_channels
             # Testa a conexão
             self.client.server_info()
             logging.info("Conexão com MongoDB estabelecida com sucesso!")
@@ -166,68 +168,78 @@ class Database:
             return None
 
     async def add_monitored_channel(self, discord_id: str, channel: MonitoredChannel) -> bool:
-        """Adiciona um canal para monitoramento"""
+        """Adiciona um canal para monitoramento na coleção `monitored_channels`.
+
+        Se o documento do canal já existir, apenas adiciona o usuário à lista de subscribers
+        (se ainda não for assinante). Caso contrário cria o documento com o primeiro assinante.
+        """
         try:
-            # Primeiro verifica se o canal já está sendo monitorado
-            result = self.db.user_profiles.find_one({
-                "discord_id": discord_id,
-                "monitored_channels": {
-                    "$elemMatch": {
-                        "platform": channel.platform,
-                        "channel_id": channel.channel_id
-                    }
-                }
+            # Tenta encontrar um documento existente pelo platform+channel_id
+            existing = self.monitored_channels.find_one({
+                'platform': channel.platform,
+                'channel_id': channel.channel_id
             })
 
-            if result:
-                return False  # Canal já está sendo monitorado
+            if existing:
+                # Se o usuário já é subscriber, não faz nada
+                if str(discord_id) in existing.get('subscribers', []):
+                    return False
+                # Adiciona o subscriber ao documento do canal
+                result = self.monitored_channels.update_one(
+                    {'_id': existing['_id']},
+                    {'$addToSet': {'subscribers': str(discord_id)}}
+                )
+                return result.modified_count > 0
 
-            # Adiciona o novo canal
-            result = self.db.user_profiles.update_one(
-                {"discord_id": discord_id},
-                {"$push": {"monitored_channels": channel.__dict__}}
-            )
-            return result.modified_count > 0
+            # Cria novo documento de canal
+            channel.subscribers = [str(discord_id)]
+            result = self.monitored_channels.insert_one(channel.to_dict())
+            return result.acknowledged
         except Exception as e:
             logging.error(f"Erro ao adicionar canal monitorado: {str(e)}")
             return False
 
     async def remove_monitored_channel(self, discord_id: str, platform: str, channel_name: str) -> bool:
-        """Remove um canal do monitoramento"""
+        """Remove um canal do monitoramento para um usuário específico.
+
+        Se o usuário for o único subscriber, o documento do canal será removido.
+        Caso contrário, apenas será removido da lista de subscribers.
+        """
         try:
-            result = await self.db.user_profiles.update_one(
-                {"discord_id": discord_id},
-                {
-                    "$pull": {
-                        "monitored_channels": {
-                            "platform": platform,
-                            "channel_name": channel_name
-                        }
-                    }
-                }
-            )
-            return result.modified_count > 0
+            # Tenta encontrar o canal pelo platform e channel_name
+            doc = self.monitored_channels.find_one({'platform': platform, 'channel_name': channel_name})
+            if not doc:
+                return False
+
+            # Se o usuário não está na lista de subscribers
+            if str(discord_id) not in doc.get('subscribers', []):
+                return False
+
+            # Se há mais de um subscriber, apenas remove o usuário
+            if len(doc.get('subscribers', [])) > 1:
+                result = self.monitored_channels.update_one(
+                    {'_id': doc['_id']},
+                    {'$pull': {'subscribers': str(discord_id)}}
+                )
+                return result.modified_count > 0
+
+            # Caso contrário, remove o documento do canal por completo
+            result = self.monitored_channels.delete_one({'_id': doc['_id']})
+            return result.deleted_count > 0
         except Exception as e:
             logging.error(f"Erro ao remover canal monitorado: {str(e)}")
             return False
 
     async def update_channel_last_video(self, discord_id: str, channel_id: str, video_id: str) -> bool:
-        """Atualiza o ID do último vídeo de um canal do YouTube"""
+        """Atualiza o ID do último vídeo de um canal do YouTube (baseado na coleção de canais monitorados)"""
         try:
-            result = self.db.user_profiles.update_one(
+            result = self.monitored_channels.update_one(
                 {
-                    "discord_id": discord_id,
-                    "monitored_channels": {
-                        "$elemMatch": {
-                            "channel_id": channel_id,
-                            "platform": "youtube"
-                        }
-                    }
+                    'channel_id': channel_id,
+                    'platform': 'youtube'
                 },
                 {
-                    "$set": {
-                        "monitored_channels.$.last_video_id": video_id
-                    }
+                    '$set': {'last_video_id': video_id}
                 }
             )
             return result.modified_count > 0
@@ -236,22 +248,17 @@ class Database:
             return False
 
     async def update_channel_stream_status(self, discord_id: str, channel_id: str, stream_id: str) -> bool:
-        """Atualiza o status de live de um canal da Twitch"""
+        """Atualiza o status de live de um canal da Twitch (na coleção de canais monitorados)"""
         try:
-            result = self.db.user_profiles.update_one(
+            result = self.monitored_channels.update_one(
                 {
-                    "discord_id": discord_id,
-                    "monitored_channels": {
-                        "$elemMatch": {
-                            "channel_id": channel_id,
-                            "platform": "twitch"
-                        }
-                    }
+                    'channel_id': channel_id,
+                    'platform': 'twitch'
                 },
                 {
-                    "$set": {
-                        "monitored_channels.$.last_stream_id": stream_id,
-                        "monitored_channels.$.is_live": bool(stream_id)
+                    '$set': {
+                        'last_stream_id': stream_id,
+                        'is_live': bool(stream_id)
                     }
                 }
             )
@@ -260,17 +267,50 @@ class Database:
             logging.error(f"Erro ao atualizar status de live: {str(e)}")
             return False
 
+    async def get_all_monitored_channels(self) -> List[MonitoredChannel]:
+        """Retorna todos os canais monitorados (cada documento contém subscribers)."""
+        try:
+            channels = []
+            cursor = self.monitored_channels.find({})
+            for doc in cursor:
+                channels.append(MonitoredChannel.from_dict(doc))
+            return channels
+        except Exception as e:
+            logging.error(f"Erro ao buscar canais monitorados: {str(e)}")
+            return []
+
     async def get_profiles_with_monitored_channels(self) -> List[UserProfile]:
-        """Retorna todos os perfis que possuem canais monitorados"""
+        """Compat layer: Retorna perfis dos usuários que têm ao menos um canal monitorado.
+
+        Este método preserva a interface esperada pelo scheduler e outros módulos:
+        - Antes: retornava UserProfile com `monitored_channels` embutidos.
+        - Agora: retornará UserProfile com monitored_channels preenchidos a partir da coleção separada.
+        """
         try:
             profiles = []
-            cursor = self.user_profiles.find(
-                {"monitored_channels": {"$exists": True, "$ne": []}}
-            )
+            # Obter todos os canais monitorados e agrupar por subscriber
+            cursor = self.monitored_channels.find({})
 
-            # Converter o cursor em lista de forma síncrona
+            # mapa de discord_id -> list[MonitoredChannel]
+            grouped = {}
             for doc in cursor:
-                profiles.append(UserProfile.from_dict(doc))
+                channel = MonitoredChannel.from_dict(doc)
+                for sub in doc.get('subscribers', []):
+                    grouped.setdefault(str(sub), []).append(channel)
+
+            # Para cada subscriber, buscar o perfil e anexar a lista de canais
+            for discord_id, channels in grouped.items():
+                user_doc = self.user_profiles.find_one({'discord_id': discord_id})
+                if user_doc:
+                    profile = UserProfile.from_dict(user_doc)
+                else:
+                    # Cria um perfil mínimo caso não exista
+                    profile = UserProfile(discord_id=discord_id, username=str(discord_id))
+                # Atribui a lista de canais para compatibilidade com o restante do código
+                # Observação: UserProfile não tem mais o campo monitored_channels, mas o resto do
+                # código espera que o objeto retornado tenha esse atributo; adicionamos dinamicamente.
+                setattr(profile, 'monitored_channels', channels)
+                profiles.append(profile)
 
             return profiles
         except Exception as e:
@@ -282,6 +322,10 @@ class Database:
         try:
             # Cria índices necessários
             self.user_profiles.create_index("discord_id", unique=True)
+            # Índice para canais monitorados (evita duplicatas por platform+channel_id)
+            self.monitored_channels.create_index([('platform', 1), ('channel_id', 1)], unique=True)
+            # Índice para buscas por channel_name
+            self.monitored_channels.create_index('channel_name')
             logging.info("Índices do banco de dados criados/atualizados com sucesso!")
         except Exception as e:
             logging.error(f"Erro ao inicializar coleções: {str(e)}")
