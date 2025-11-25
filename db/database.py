@@ -2,7 +2,7 @@ from pymongo import MongoClient
 from datetime import datetime
 import logging
 from config.settings import MONGODB_URI, DATABASE_NAME
-from .models import UserProfile, Song, MusicPreference, MonitoredChannel
+from .models import UserProfile, Song, MusicPreference, MonitoredChannel, UserActivity
 from typing import List, Optional
 
 
@@ -21,6 +21,9 @@ class Database:
             # Inicializa as coleções
             self.user_profiles = self.db.user_profiles
             self.monitored_channels = self.db.monitored_channels
+            self.user_activities = (
+                self.db.user_activities
+            )  # Nova coleção para atividades
             # Testa a conexão
             self.client.server_info()
             logging.info("Conexão com MongoDB estabelecida com sucesso!")
@@ -38,15 +41,12 @@ class Database:
         """Cria um novo perfil de usuário se não existir"""
         try:
             # Criamos um novo perfil - os valores padrão serão inicializados pelo __post_init__
-            profile = UserProfile(
-                discord_id=discord_id,
-                username=username
-            )
+            profile = UserProfile(discord_id=discord_id, username=username)
 
             result = self.db.user_profiles.update_one(
                 {"discord_id": discord_id},
                 {"$setOnInsert": profile.to_dict()},
-                upsert=True
+                upsert=True,
             )
             if result.upserted_id:
                 logging.info(f"Novo perfil criado para usuário {username}")
@@ -63,13 +63,8 @@ class Database:
                 {
                     "discord_id": discord_id,
                     "music_preferences": {
-                        "$not": {
-                            "$elemMatch": {
-                                "name": name,
-                                "type": pref_type
-                            }
-                        }
-                    }
+                        "$not": {"$elemMatch": {"name": name, "type": pref_type}}
+                    },
                 },
                 {
                     "$push": {
@@ -77,10 +72,10 @@ class Database:
                             "name": name,
                             "type": pref_type,
                             "count": 1,
-                            "last_updated": now
+                            "last_updated": now,
                         }
                     }
-                }
+                },
             )
 
             if result.modified_count == 0:
@@ -89,15 +84,17 @@ class Database:
                     {
                         "discord_id": discord_id,
                         "music_preferences.name": name,
-                        "music_preferences.type": pref_type
+                        "music_preferences.type": pref_type,
                     },
                     {
                         "$inc": {"music_preferences.$.count": 1},
-                        "$set": {"music_preferences.$.last_updated": now}
-                    }
+                        "$set": {"music_preferences.$.last_updated": now},
+                    },
                 )
 
-            logging.info(f"Preferência musical {name} ({pref_type}) atualizada para usuário {discord_id}")
+            logging.info(
+                f"Preferência musical {name} ({pref_type}) atualizada para usuário {discord_id}"
+            )
             return True
         except Exception as e:
             logging.error(f"Erro ao adicionar preferência musical: {str(e)}")
@@ -107,11 +104,11 @@ class Database:
         """Adiciona uma música ao histórico do usuário e atualiza preferências"""
         try:
             song = Song(
-                title=song_info['title'],
-                url=song_info['url'],
+                title=song_info["title"],
+                url=song_info["url"],
                 played_at=datetime.utcnow(),
-                artist=song_info.get('artist'),
-                genre=song_info.get('genre')
+                artist=song_info.get("artist"),
+                genre=song_info.get("genre"),
             )
 
             # Adiciona ao histórico
@@ -121,17 +118,17 @@ class Database:
                     "$push": {
                         "music_history": {
                             "$each": [vars(song)],
-                            "$slice": -100  # Mantém apenas as últimas 100 músicas
+                            "$slice": -100,  # Mantém apenas as últimas 100 músicas
                         }
                     }
-                }
+                },
             )
 
             # Atualiza preferências se houver artista ou gênero
             if song.artist:
-                await self.add_music_preference(discord_id, song.artist, 'artist')
+                await self.add_music_preference(discord_id, song.artist, "artist")
             if song.genre:
-                await self.add_music_preference(discord_id, song.genre, 'genre')
+                await self.add_music_preference(discord_id, song.genre, "genre")
 
             logging.info(f"Música adicionada ao histórico do usuário {discord_id}")
             return result.modified_count > 0
@@ -139,8 +136,9 @@ class Database:
             logging.error(f"Erro ao adicionar música ao histórico: {str(e)}")
             return False
 
-    async def get_top_preferences(self, discord_id: str, pref_type: Optional[str] = None, limit: int = 5) -> List[
-        MusicPreference]:
+    async def get_top_preferences(
+        self, discord_id: str, pref_type: Optional[str] = None, limit: int = 5
+    ) -> List[MusicPreference]:
         """Retorna as principais preferências musicais do usuário"""
         try:
             user = await self.get_user_profile(discord_id)
@@ -167,7 +165,9 @@ class Database:
             logging.error(f"Erro ao recuperar perfil do usuário: {str(e)}")
             return None
 
-    async def add_monitored_channel(self, discord_id: str, channel: MonitoredChannel) -> bool:
+    async def add_monitored_channel(
+        self, discord_id: str, channel: MonitoredChannel
+    ) -> bool:
         """Adiciona um canal para monitoramento na coleção `monitored_channels`.
 
         Se o documento do canal já existir, apenas adiciona o usuário à lista de subscribers
@@ -175,19 +175,18 @@ class Database:
         """
         try:
             # Tenta encontrar um documento existente pelo platform+channel_id
-            existing = self.monitored_channels.find_one({
-                'platform': channel.platform,
-                'channel_id': channel.channel_id
-            })
+            existing = self.monitored_channels.find_one(
+                {"platform": channel.platform, "channel_id": channel.channel_id}
+            )
 
             if existing:
                 # Se o usuário já é subscriber, não faz nada
-                if str(discord_id) in existing.get('subscribers', []):
+                if str(discord_id) in existing.get("subscribers", []):
                     return False
                 # Adiciona o subscriber ao documento do canal
                 result = self.monitored_channels.update_one(
-                    {'_id': existing['_id']},
-                    {'$addToSet': {'subscribers': str(discord_id)}}
+                    {"_id": existing["_id"]},
+                    {"$addToSet": {"subscribers": str(discord_id)}},
                 )
                 return result.modified_count > 0
 
@@ -199,7 +198,9 @@ class Database:
             logging.error(f"Erro ao adicionar canal monitorado: {str(e)}")
             return False
 
-    async def remove_monitored_channel(self, discord_id: str, platform: str, channel_name: str) -> bool:
+    async def remove_monitored_channel(
+        self, discord_id: str, platform: str, channel_name: str
+    ) -> bool:
         """Remove um canal do monitoramento para um usuário específico.
 
         Se o usuário for o único subscriber, o documento do canal será removido.
@@ -207,60 +208,52 @@ class Database:
         """
         try:
             # Tenta encontrar o canal pelo platform e channel_name
-            doc = self.monitored_channels.find_one({'platform': platform, 'channel_name': channel_name})
+            doc = self.monitored_channels.find_one(
+                {"platform": platform, "channel_name": channel_name}
+            )
             if not doc:
                 return False
 
             # Se o usuário não está na lista de subscribers
-            if str(discord_id) not in doc.get('subscribers', []):
+            if str(discord_id) not in doc.get("subscribers", []):
                 return False
 
             # Se há mais de um subscriber, apenas remove o usuário
-            if len(doc.get('subscribers', [])) > 1:
+            if len(doc.get("subscribers", [])) > 1:
                 result = self.monitored_channels.update_one(
-                    {'_id': doc['_id']},
-                    {'$pull': {'subscribers': str(discord_id)}}
+                    {"_id": doc["_id"]}, {"$pull": {"subscribers": str(discord_id)}}
                 )
                 return result.modified_count > 0
 
             # Caso contrário, remove o documento do canal por completo
-            result = self.monitored_channels.delete_one({'_id': doc['_id']})
+            result = self.monitored_channels.delete_one({"_id": doc["_id"]})
             return result.deleted_count > 0
         except Exception as e:
             logging.error(f"Erro ao remover canal monitorado: {str(e)}")
             return False
 
-    async def update_channel_last_video(self, discord_id: str, channel_id: str, video_id: str) -> bool:
+    async def update_channel_last_video(
+        self, discord_id: str, channel_id: str, video_id: str
+    ) -> bool:
         """Atualiza o ID do último vídeo de um canal do YouTube (baseado na coleção de canais monitorados)"""
         try:
             result = self.monitored_channels.update_one(
-                {
-                    'channel_id': channel_id,
-                    'platform': 'youtube'
-                },
-                {
-                    '$set': {'last_video_id': video_id}
-                }
+                {"channel_id": channel_id, "platform": "youtube"},
+                {"$set": {"last_video_id": video_id}},
             )
             return result.modified_count > 0
         except Exception as e:
             logging.error(f"Erro ao atualizar último vídeo: {str(e)}")
             return False
 
-    async def update_channel_stream_status(self, discord_id: str, channel_id: str, stream_id: str) -> bool:
+    async def update_channel_stream_status(
+        self, discord_id: str, channel_id: str, stream_id: str
+    ) -> bool:
         """Atualiza o status de live de um canal da Twitch (na coleção de canais monitorados)"""
         try:
             result = self.monitored_channels.update_one(
-                {
-                    'channel_id': channel_id,
-                    'platform': 'twitch'
-                },
-                {
-                    '$set': {
-                        'last_stream_id': stream_id,
-                        'is_live': bool(stream_id)
-                    }
-                }
+                {"channel_id": channel_id, "platform": "twitch"},
+                {"$set": {"last_stream_id": stream_id, "is_live": bool(stream_id)}},
             )
             return result.modified_count > 0
         except Exception as e:
@@ -295,42 +288,24 @@ class Database:
             grouped = {}
             for doc in cursor:
                 channel = MonitoredChannel.from_dict(doc)
-                for sub in doc.get('subscribers', []):
+                for sub in doc.get("subscribers", []):
                     grouped.setdefault(str(sub), []).append(channel)
 
             # Para cada subscriber, buscar o perfil e anexar a lista de canais
             for discord_id, channels in grouped.items():
-                user_doc = self.user_profiles.find_one({'discord_id': discord_id})
+                user_doc = self.user_profiles.find_one({"discord_id": discord_id})
                 if user_doc:
                     profile = UserProfile.from_dict(user_doc)
                 else:
                     # Cria um perfil mínimo caso não exista
-                    profile = UserProfile(discord_id=discord_id, username=str(discord_id))
+                    profile = UserProfile(
+                        discord_id=discord_id, username=str(discord_id)
+                    )
                 # Atribui a lista de canais para compatibilidade com o restante do código
                 # Observação: UserProfile não tem mais o campo monitored_channels, mas o resto do
                 # código espera que o objeto retornado tenha esse atributo; adicionamos dinamicamente.
-                setattr(profile, 'monitored_channels', channels)
+                setattr(profile, "monitored_channels", channels)
                 profiles.append(profile)
-
-            return profiles
-        except Exception as e:
-            logging.error(f"Erro ao buscar perfis com canais monitorados: {str(e)}")
-            return []
-
-    def initialize_collections(self):
-        """Inicializa as coleções necessárias se não existirem"""
-        try:
-            # Cria índices necessários
-            self.user_profiles.create_index("discord_id", unique=True)
-            # Índice para canais monitorados (evita duplicatas por platform+channel_id)
-            self.monitored_channels.create_index([('platform', 1), ('channel_id', 1)], unique=True)
-            # Índice para buscas por channel_name
-            self.monitored_channels.create_index('channel_name')
-            logging.info("Índices do banco de dados criados/atualizados com sucesso!")
-        except Exception as e:
-            logging.error(f"Erro ao inicializar coleções: {str(e)}")
-            raise e
-
 
 # Instância global do banco de dados
 db = Database()

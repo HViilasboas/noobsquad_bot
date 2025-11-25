@@ -3,24 +3,22 @@ import logging
 from datetime import datetime
 from discord.ext import commands
 
-from config.settings import (
-    DISCORD_TOKEN,
-    REBOOT_CHANNEL_ID
-)
+from config.settings import DISCORD_TOKEN, REBOOT_CHANNEL_ID
 from db.database import db
 from bot.commands import MusicCommands, HelpCommands
 from bot.commands_monitor import MonitorCommands
+from bot.commands_ranking import RankingCommands
 from bot.scheduler import MonitorScheduler
 
 # --- CONFIGURAÇÃO DE LOGGING ---
-log_filename = datetime.now().strftime('bot_log_%Y-%m-%d.log')
+log_filename = datetime.now().strftime("bot_log_%Y-%m-%d.log")
 logging.basicConfig(
     level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    format="[%(asctime)s] [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(log_filename, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+        logging.FileHandler(log_filename, encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
 )
 
 if not DISCORD_TOKEN:
@@ -34,7 +32,10 @@ if not REBOOT_CHANNEL_ID:
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-bot = commands.Bot(command_prefix='!', intents=intents, heartbeat_timeout=60.0, help_command=None)
+intents.presences = True
+bot = commands.Bot(
+    command_prefix="!", intents=intents, heartbeat_timeout=60.0, help_command=None
+)
 
 # Criar instância do scheduler
 scheduler = MonitorScheduler(bot)
@@ -60,6 +61,7 @@ async def setup_cogs():
 
     await bot.add_cog(MusicCommands(bot))
     await bot.add_cog(MonitorCommands(bot))
+    await bot.add_cog(RankingCommands(bot))
     await bot.add_cog(HelpCommands(bot))
 
     # Iniciar o scheduler de monitoramento
@@ -72,7 +74,7 @@ async def setup_cogs():
 async def on_ready():
     """Evento disparado quando o bot está pronto e conectado"""
     await setup_cogs()  # Registra os Cogs quando o bot iniciar
-    logging.info(f'Bot conectado como {bot.user.name}')
+    logging.info(f"Bot conectado como {bot.user.name}")
 
     try:
         # Reconectar ao canal de voz se o bot reiniciar
@@ -87,11 +89,15 @@ async def on_ready():
 async def on_command_error(ctx, error):
     """Trata erros de comando."""
     if isinstance(error, commands.CommandNotFound):
-        await ctx.send(f"🤔 Comando não encontrado. Digite `!ajuda` para ver a lista de comandos disponíveis.")
+        await ctx.send(
+            f"🤔 Comando não encontrado. Digite `!ajuda` para ver a lista de comandos disponíveis."
+        )
     else:
         # Para outros erros, loga e informa o usuário
         logging.error(f"Ocorreu um erro no comando '{ctx.command}': {error}")
-        await ctx.send("❌ Ocorreu um erro ao processar o comando. Por favor, tente novamente.")
+        await ctx.send(
+            "❌ Ocorreu um erro ao processar o comando. Por favor, tente novamente."
+        )
 
 
 @bot.event
