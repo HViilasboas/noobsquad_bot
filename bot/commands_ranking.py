@@ -8,8 +8,6 @@ from db.database import db
 class RankingCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Dicionário para rastrear sessões ativas: {(user_id, activity_name): start_time}
-        self.active_sessions = {}
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
@@ -29,24 +27,17 @@ class RankingCommands(commands.Cog):
         stopped_activities = before_activities - after_activities
 
         user_id = str(after.id)
-        now = datetime.now(UTC)
+        username = after.display_name
 
         # Processar atividades iniciadas
         for activity_name in started_activities:
-            self.active_sessions[(user_id, activity_name)] = now
-            logging.info(f"Usuário {after.name} começou a jogar {activity_name}")
+            await db.start_activity_session(user_id, username, activity_name)
+            logging.info(f"Usuário {username} começou a jogar {activity_name}")
 
         # Processar atividades paradas
         for activity_name in stopped_activities:
-            start_time = self.active_sessions.pop((user_id, activity_name), None)
-            if start_time:
-                duration = (now - start_time).total_seconds()
-                # Ignorar sessões muito curtas (< 1 minuto)
-                if duration > 60:
-                    await db.update_user_activity(user_id, activity_name, duration)
-                    logging.info(
-                        f"Usuário {after.name} jogou {activity_name} por {duration:.2f}s"
-                    )
+            await db.end_activity_session(user_id, activity_name)
+            logging.info(f"Usuário {username} parou de jogar {activity_name}")
 
     @commands.command(name="rank")
     async def rank(self, ctx, category: str = None, *, target: str = None):
@@ -102,8 +93,8 @@ class RankingCommands(commands.Cog):
 
         description = ""
         for i, activity in enumerate(activities, 1):
-            hours = activity.total_seconds / 3600
-            description += f"**{i}. {activity.activity_name}**\n⏱️ {hours:.1f} horas\n\n"
+            hours = activity["total_seconds"] / 3600
+            description += f"**{i}. {activity['activity_name']}**\n⏱️ {hours:.1f} horas\n\n"
 
         embed.description = description
         await ctx.send(embed=embed)
@@ -123,10 +114,10 @@ class RankingCommands(commands.Cog):
         description = ""
         for i, activity in enumerate(activities, 1):
             # Tentar pegar o nome do usuário do cache do bot ou do banco
-            user = ctx.guild.get_member(int(activity.user_id))
-            user_name = user.display_name if user else f"User {activity.user_id}"
+            user = ctx.guild.get_member(int(activity["user_id"]))
+            user_name = user.display_name if user else f"User {activity['user_id']}"
 
-            hours = activity.total_seconds / 3600
+            hours = activity["total_seconds"] / 3600
             description += f"**{i}. {user_name}**\n⏱️ {hours:.1f} horas\n\n"
 
         embed.description = description

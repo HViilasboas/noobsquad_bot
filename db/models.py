@@ -24,31 +24,7 @@ class MusicPreference:
     last_updated: datetime
 
 
-@dataclass
-class UserActivity:
-    """Representa a atividade de um usuário em um jogo/app (Agregado)"""
 
-    user_id: str
-    activity_name: str
-    total_seconds: float
-    last_seen: datetime
-
-    @classmethod
-    def from_dict(cls, data: Dict) -> "UserActivity":
-        return cls(
-            user_id=data["user_id"],
-            activity_name=data["activity_name"],
-            total_seconds=data.get("total_seconds", 0.0),
-            last_seen=data.get("last_seen", datetime.now(UTC)),
-        )
-
-    def to_dict(self) -> Dict:
-        return {
-            "user_id": self.user_id,
-            "activity_name": self.activity_name,
-            "total_seconds": self.total_seconds,
-            "last_seen": self.last_seen,
-        }
 
 
 @dataclass
@@ -80,6 +56,13 @@ class ActivityHistory:
     activity_name: str
     start_time: datetime
     end_time: Optional[datetime] = None
+
+    @property
+    def duration_seconds(self) -> Optional[float]:
+        """Calcula a duração da sessão em segundos"""
+        if self.end_time:
+            return (self.end_time - self.start_time).total_seconds()
+        return None
 
     @classmethod
     def from_dict(cls, data: Dict) -> "ActivityHistory":
@@ -231,7 +214,6 @@ __all__ = [
     "MusicPreference",
     "MonitoredChannel",
     "UserProfile",
-    "UserActivity",
     "Activity",
     "ActivityHistory",
 ]

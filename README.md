@@ -68,9 +68,13 @@ Bot multifuncional para Discord, com funcionalidades de música (YouTube) e moni
     CHAT_JUKEBOX=ID_do_canal_de_comandos_de_musica
     MONGODB_URI=sua_string_de_conexao_mongodb
     DATABASE_NAME=nome_do_banco_de_dados
+    
+    # Horário de sincronização automática de membros (formato HH:MM em UTC)
+    SYNC_MEMBERS_TIME=03:00
     ```
     - O `REBOOT_CHANNEL_ID` pode ser obtido clicando com o botão direito no canal desejado no Discord e selecionando "Copiar ID" (ative o modo desenvolvedor nas configurações do Discord).
     - `MONGODB_URI` e `DATABASE_NAME` são as credenciais para seu banco de dados MongoDB.
+    - `SYNC_MEMBERS_TIME`: Define o horário diário (em UTC) para sincronizar automaticamente os membros do servidor com o banco de dados. Exemplo: `03:00` = 03:00 UTC (00:00 horário de Brasília).
 
 ---
 

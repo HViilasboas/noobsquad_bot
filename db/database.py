@@ -1,5 +1,5 @@
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, UTC
 import logging
 from config.settings import MONGODB_URI, DATABASE_NAME
 from .models import (
@@ -7,7 +7,6 @@ from .models import (
     Song,
     MusicPreference,
     MonitoredChannel,
-    UserActivity,
     Activity,
     ActivityHistory,
 )
@@ -20,7 +19,6 @@ class Database:
         self.db = None
         self.user_profiles = None  # Referência para a coleção user_profiles
         self.monitored_channels = None  # Nova coleção para canais monitorados
-        self.user_activities = None  # Nova coleção para atividades
         self.activities = None
         self.activity_history = None
 
@@ -32,9 +30,6 @@ class Database:
             # Inicializa as coleções
             self.user_profiles = self.db.user_profiles
             self.monitored_channels = self.db.monitored_channels
-            self.user_activities = (
-                self.db.user_activities
-            )  # Nova coleção para atividades
             self.activities = self.db.activities
             self.activity_history = self.db.activity_history
             # Testa a conexão
@@ -325,33 +320,45 @@ class Database:
             logging.error(f"Erro ao buscar perfis com canais monitorados: {str(e)}")
             return []
 
-    async def update_user_activity(
-        self, user_id: str, activity_name: str, duration: float
-    ) -> bool:
-        """Atualiza o tempo de atividade de um usuário em um jogo/app"""
-        try:
-            now = datetime.now(UTC)
-            result = self.user_activities.update_one(
-                {"user_id": user_id, "activity_name": activity_name},
-                {"$inc": {"total_seconds": duration}, "$set": {"last_seen": now}},
-                upsert=True,
-            )
-            return result.acknowledged
-        except Exception as e:
-            logging.error(f"Erro ao atualizar atividade do usuário: {str(e)}")
-            return False
-
     async def get_user_top_activities(
         self, user_id: str, limit: int = 10
-    ) -> List[UserActivity]:
-        """Retorna as atividades mais frequentes de um usuário"""
+    ) -> List[dict]:
+        """Retorna as atividades mais frequentes de um usuário calculando dinamicamente a partir do histórico"""
         try:
-            cursor = (
-                self.user_activities.find({"user_id": user_id})
-                .sort("total_seconds", -1)
-                .limit(limit)
-            )
-            return [UserActivity.from_dict(doc) for doc in cursor]
+            # Usa agregação do MongoDB para calcular totais
+            pipeline = [
+                # Filtra apenas sessões do usuário que foram finalizadas
+                {"$match": {"user_id": user_id, "end_time": {"$ne": None}}},
+                # Agrupa por atividade e soma as durações
+                {
+                    "$group": {
+                        "_id": "$activity_name",
+                        "total_seconds": {
+                            "$sum": {
+                                "$divide": [
+                                    {"$subtract": ["$end_time", "$start_time"]},
+                                    1000,  # Converte milissegundos para segundos
+                                ]
+                            }
+                        },
+                        "last_seen": {"$max": "$end_time"},
+                    }
+                },
+                # Ordena por tempo total decrescente
+                {"$sort": {"total_seconds": -1}},
+                # Limita os resultados
+                {"$limit": limit},
+            ]
+
+            cursor = self.activity_history.aggregate(pipeline)
+            results = []
+            for doc in cursor:
+                results.append({
+                    "activity_name": doc["_id"],
+                    "total_seconds": doc["total_seconds"],
+                    "last_seen": doc["last_seen"],
+                })
+            return results
         except Exception as e:
             logging.error(f"Erro ao buscar atividades do usuário: {str(e)}")
             return []
@@ -415,11 +422,6 @@ class Database:
     async def end_activity_session(self, user_id: str, activity_name: str) -> bool:
         """Finaliza uma sessão de atividade aberta"""
         try:
-            # Busca sessão aberta (case insensitive para o nome da atividade pode ser arriscado se não normalizado,
-            # mas aqui assumimos que activity_name vem do evento do Discord que deve bater ou usamos regex)
-            # Vamos tentar buscar pelo nome exato ou regex se necessário.
-            # O ideal é buscar sessões abertas desse usuário e ver qual bate o nome.
-
             # Busca todas as sessões abertas do usuário
             cursor = self.activity_history.find({"user_id": user_id, "end_time": None})
 
@@ -429,26 +431,12 @@ class Database:
             for doc in cursor:
                 # Compara nomes de forma case-insensitive
                 if doc["activity_name"].lower() == activity_name.lower():
-                    # Calcula duração para atualizar o user_activities (agregado)
-                    start_time = doc["start_time"]
-                    # start_time pode vir como string se não foi parseado, mas pymongo costuma retornar datetime
-                    # Garantir que é datetime
-                    if isinstance(start_time, str):
-                        # Fallback simples, mas ideal é que esteja como datetime no banco
-                        pass
-
-                    duration = (now - start_time.replace(tzinfo=UTC)).total_seconds()
-
-                    # Atualiza o histórico
+                    # Atualiza o histórico com o end_time
                     self.activity_history.update_one(
                         {"_id": doc["_id"]}, {"$set": {"end_time": now}}
                     )
-
-                    # Atualiza o agregado
-                    await self.update_user_activity(
-                        user_id, doc["activity_name"], duration
-                    )
                     modified = True
+                    logging.info(f"Sessão de atividade {activity_name} finalizada para usuário {user_id}")
 
             return modified
         except Exception as e:
@@ -477,18 +465,53 @@ class Database:
 
     async def get_global_activity_rank(
         self, activity_name: str, limit: int = 10
-    ) -> List[UserActivity]:
-        """Retorna o ranking global de usuários para uma atividade específica"""
+    ) -> List[dict]:
+        """Retorna o ranking global de usuários para uma atividade específica calculando dinamicamente"""
         try:
-            # Busca case-insensitive pelo nome da atividade
-            cursor = (
-                self.user_activities.find(
-                    {"activity_name": {"$regex": f"^{activity_name}$", "$options": "i"}}
-                )
-                .sort("total_seconds", -1)
-                .limit(limit)
-            )
-            return [UserActivity.from_dict(doc) for doc in cursor]
+            # Usa agregação do MongoDB para calcular rankings por usuário
+            pipeline = [
+                # Filtra apenas sessões da atividade específica que foram finalizadas (case-insensitive)
+                {
+                    "$match": {
+                        "activity_name": {
+                            "$regex": f"^{activity_name}$",
+                            "$options": "i",
+                        },
+                        "end_time": {"$ne": None},
+                    }
+                },
+                # Agrupa por usuário e soma as durações
+                {
+                    "$group": {
+                        "_id": "$user_id",
+                        "activity_name": {"$first": "$activity_name"},
+                        "total_seconds": {
+                            "$sum": {
+                                "$divide": [
+                                    {"$subtract": ["$end_time", "$start_time"]},
+                                    1000,  # Converte milissegundos para segundos
+                                ]
+                            }
+                        },
+                        "last_seen": {"$max": "$end_time"},
+                    }
+                },
+                # Ordena por tempo total decrescente
+                {"$sort": {"total_seconds": -1}},
+                # Limita os resultados
+                {"$limit": limit},
+            ]
+
+            cursor = self.activity_history.aggregate(pipeline)
+            results = []
+            for doc in cursor:
+                results.append({
+                    "user_id": doc["_id"],
+                    "activity_name": doc["activity_name"],
+                    "total_seconds": doc["total_seconds"],
+                    "last_seen": doc["last_seen"],
+                })
+            return results
         except Exception as e:
             logging.error(f"Erro ao buscar ranking global da atividade: {str(e)}")
             return []

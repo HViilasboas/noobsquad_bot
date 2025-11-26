@@ -1,7 +1,9 @@
 import discord
 from discord.ext import commands, tasks
 import logging
+from datetime import time
 from db.database import db
+from config.settings import SYNC_MEMBERS_HOUR, SYNC_MEMBERS_MINUTE
 
 
 class ActivityTracker(commands.Cog):
@@ -52,7 +54,7 @@ class ActivityTracker(commands.Cog):
                 logging.info(f"Atividade finalizada: {name} por {after.name}")
                 await db.end_activity_session(str(after.id), name)
 
-    @tasks.loop(hours=24)
+    @tasks.loop(time=time(hour=SYNC_MEMBERS_HOUR, minute=SYNC_MEMBERS_MINUTE))
     async def sync_members_task(self):
         """Sincroniza periodicamente os membros do servidor com o banco de dados"""
         if not self.bot.is_ready():
@@ -68,6 +70,7 @@ class ActivityTracker(commands.Cog):
 
                 if members_data:
                     await db.sync_member_profiles(members_data)
+                    logging.info(f"Sincronizados {len(members_data)} membros do servidor {guild.name}")
         except Exception as e:
             logging.error(f"Erro na task de sincronização de membros: {str(e)}")
 
