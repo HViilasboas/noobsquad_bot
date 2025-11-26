@@ -63,14 +63,27 @@ class ActivityTracker(commands.Cog):
         logging.info("Iniciando sincronização de membros...")
         try:
             for guild in self.bot.guilds:
+                total_members = len(guild.members)
+                logging.info(f"Servidor '{guild.name}' - Total de membros no guild.members: {total_members}")
+
                 members_data = []
+                bot_count = 0
+
                 for member in guild.members:
-                    if not member.bot:
+                    if member.bot:
+                        bot_count += 1
+                        logging.debug(f"  [BOT IGNORADO] {member.name} (ID: {member.id})")
+                    else:
                         members_data.append({"id": str(member.id), "name": member.name})
+                        logging.info(f"  [PROCESSANDO] Membro: {member.name} (ID: {member.id})")
+
+                logging.info(f"Resumo: {len(members_data)} membros válidos, {bot_count} bots ignorados")
 
                 if members_data:
                     await db.sync_member_profiles(members_data)
-                    logging.info(f"Sincronizados {len(members_data)} membros do servidor {guild.name}")
+                    logging.info(f"✅ Sincronizados {len(members_data)} membros do servidor '{guild.name}'")
+                else:
+                    logging.warning(f"Nenhum membro válido encontrado no servidor '{guild.name}'")
         except Exception as e:
             logging.error(f"Erro na task de sincronização de membros: {str(e)}")
 
