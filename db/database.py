@@ -2,7 +2,15 @@ from pymongo import MongoClient
 from datetime import datetime
 import logging
 from config.settings import MONGODB_URI, DATABASE_NAME
-from .models import UserProfile, Song, MusicPreference, MonitoredChannel, UserActivity
+from .models import (
+    UserProfile,
+    Song,
+    MusicPreference,
+    MonitoredChannel,
+    UserActivity,
+    Activity,
+    ActivityHistory,
+)
 from typing import List, Optional
 
 
@@ -12,6 +20,9 @@ class Database:
         self.db = None
         self.user_profiles = None  # Referência para a coleção user_profiles
         self.monitored_channels = None  # Nova coleção para canais monitorados
+        self.user_activities = None  # Nova coleção para atividades
+        self.activities = None
+        self.activity_history = None
 
     def connect(self):
         """Estabelece conexão com o MongoDB"""
@@ -24,6 +35,8 @@ class Database:
             self.user_activities = (
                 self.db.user_activities
             )  # Nova coleção para atividades
+            self.activities = self.db.activities
+            self.activity_history = self.db.activity_history
             # Testa a conexão
             self.client.server_info()
             logging.info("Conexão com MongoDB estabelecida com sucesso!")
@@ -306,6 +319,211 @@ class Database:
                 # código espera que o objeto retornado tenha esse atributo; adicionamos dinamicamente.
                 setattr(profile, "monitored_channels", channels)
                 profiles.append(profile)
+
+            return profiles
+        except Exception as e:
+            logging.error(f"Erro ao buscar perfis com canais monitorados: {str(e)}")
+            return []
+
+    async def update_user_activity(
+        self, user_id: str, activity_name: str, duration: float
+    ) -> bool:
+        """Atualiza o tempo de atividade de um usuário em um jogo/app"""
+        try:
+            now = datetime.now(UTC)
+            result = self.user_activities.update_one(
+                {"user_id": user_id, "activity_name": activity_name},
+                {"$inc": {"total_seconds": duration}, "$set": {"last_seen": now}},
+                upsert=True,
+            )
+            return result.acknowledged
+        except Exception as e:
+            logging.error(f"Erro ao atualizar atividade do usuário: {str(e)}")
+            return False
+
+    async def get_user_top_activities(
+        self, user_id: str, limit: int = 10
+    ) -> List[UserActivity]:
+        """Retorna as atividades mais frequentes de um usuário"""
+        try:
+            cursor = (
+                self.user_activities.find({"user_id": user_id})
+                .sort("total_seconds", -1)
+                .limit(limit)
+            )
+            return [UserActivity.from_dict(doc) for doc in cursor]
+        except Exception as e:
+            logging.error(f"Erro ao buscar atividades do usuário: {str(e)}")
+            return []
+
+    async def get_or_create_activity(self, name: str) -> Activity:
+        """Retorna uma atividade existente ou cria uma nova"""
+        try:
+            # Case insensitive search
+            doc = self.activities.find_one(
+                {"name": {"$regex": f"^{name}$", "$options": "i"}}
+            )
+            if doc:
+                return Activity.from_dict(doc)
+
+            activity = Activity(name=name, created_at=datetime.now(UTC))
+            self.activities.insert_one(activity.to_dict())
+            return activity
+        except Exception as e:
+            logging.error(f"Erro ao buscar/criar atividade: {str(e)}")
+            return None
+
+    async def start_activity_session(
+        self, user_id: str, username: str, activity_name: str
+    ) -> bool:
+        """Inicia uma sessão de atividade para o usuário"""
+        try:
+            # Garante que o perfil do usuário existe
+            if not self.user_profiles.find_one({"discord_id": user_id}):
+                await self.create_user_profile(user_id, username)
+
+            # Primeiro garante que a atividade existe
+            activity = await self.get_or_create_activity(activity_name)
+            if not activity:
+                return False
+
+            # Verifica se já existe uma sessão aberta para essa atividade e usuário
+            # Se existir, não faz nada (ou poderia fechar e abrir outra, mas vamos manter simples)
+            existing_session = self.activity_history.find_one(
+                {
+                    "user_id": user_id,
+                    "activity_name": activity.name,  # Usa o nome oficial da atividade
+                    "end_time": None,
+                }
+            )
+
+            if existing_session:
+                return True
+
+            session = ActivityHistory(
+                user_id=user_id,
+                activity_name=activity.name,
+                start_time=datetime.now(UTC),
+            )
+
+            result = self.activity_history.insert_one(session.to_dict())
+            return result.acknowledged
+        except Exception as e:
+            logging.error(f"Erro ao iniciar sessão de atividade: {str(e)}")
+            return False
+
+    async def end_activity_session(self, user_id: str, activity_name: str) -> bool:
+        """Finaliza uma sessão de atividade aberta"""
+        try:
+            # Busca sessão aberta (case insensitive para o nome da atividade pode ser arriscado se não normalizado,
+            # mas aqui assumimos que activity_name vem do evento do Discord que deve bater ou usamos regex)
+            # Vamos tentar buscar pelo nome exato ou regex se necessário.
+            # O ideal é buscar sessões abertas desse usuário e ver qual bate o nome.
+
+            # Busca todas as sessões abertas do usuário
+            cursor = self.activity_history.find({"user_id": user_id, "end_time": None})
+
+            now = datetime.now(UTC)
+            modified = False
+
+            for doc in cursor:
+                # Compara nomes de forma case-insensitive
+                if doc["activity_name"].lower() == activity_name.lower():
+                    # Calcula duração para atualizar o user_activities (agregado)
+                    start_time = doc["start_time"]
+                    # start_time pode vir como string se não foi parseado, mas pymongo costuma retornar datetime
+                    # Garantir que é datetime
+                    if isinstance(start_time, str):
+                        # Fallback simples, mas ideal é que esteja como datetime no banco
+                        pass
+
+                    duration = (now - start_time.replace(tzinfo=UTC)).total_seconds()
+
+                    # Atualiza o histórico
+                    self.activity_history.update_one(
+                        {"_id": doc["_id"]}, {"$set": {"end_time": now}}
+                    )
+
+                    # Atualiza o agregado
+                    await self.update_user_activity(
+                        user_id, doc["activity_name"], duration
+                    )
+                    modified = True
+
+            return modified
+        except Exception as e:
+            logging.error(f"Erro ao finalizar sessão de atividade: {str(e)}")
+            return False
+
+    async def sync_member_profiles(self, members_data: List[dict]) -> int:
+        """Sincroniza perfis de membros, criando se não existirem"""
+        count = 0
+        try:
+            for member in members_data:
+                discord_id = str(member["id"])
+                username = member["name"]
+
+                # Verifica se existe
+                if not self.db.user_profiles.find_one({"discord_id": discord_id}):
+                    await self.create_user_profile(discord_id, username)
+                    count += 1
+
+            if count > 0:
+                logging.info(f"Sincronização concluída: {count} novos perfis criados.")
+            return count
+        except Exception as e:
+            logging.error(f"Erro ao sincronizar membros: {str(e)}")
+            return 0
+
+    async def get_global_activity_rank(
+        self, activity_name: str, limit: int = 10
+    ) -> List[UserActivity]:
+        """Retorna o ranking global de usuários para uma atividade específica"""
+        try:
+            # Busca case-insensitive pelo nome da atividade
+            cursor = (
+                self.user_activities.find(
+                    {"activity_name": {"$regex": f"^{activity_name}$", "$options": "i"}}
+                )
+                .sort("total_seconds", -1)
+                .limit(limit)
+            )
+            return [UserActivity.from_dict(doc) for doc in cursor]
+        except Exception as e:
+            logging.error(f"Erro ao buscar ranking global da atividade: {str(e)}")
+            return []
+
+    def initialize_collections(self):
+        """Inicializa as coleções necessárias se não existirem"""
+        try:
+            # Cria índices necessários
+            self.user_profiles.create_index("discord_id", unique=True)
+            # Índice para canais monitorados (evita duplicatas por platform+channel_id)
+            self.monitored_channels.create_index(
+                [("platform", 1), ("channel_id", 1)], unique=True
+            )
+            # Índice para buscas por channel_name
+            self.monitored_channels.create_index("channel_name")
+
+            # Índices para atividades
+            self.user_activities.create_index(
+                [("user_id", 1), ("activity_name", 1)], unique=True
+            )
+            self.user_activities.create_index("total_seconds")
+            self.user_activities.create_index("activity_name")
+
+            # Índices para novas coleções
+            self.activities.create_index("name", unique=True)
+            self.activity_history.create_index(
+                [("user_id", 1), ("activity_name", 1), ("end_time", 1)]
+            )
+            self.activity_history.create_index("start_time")
+
+            logging.info("Índices do banco de dados criados/atualizados com sucesso!")
+        except Exception as e:
+            logging.error(f"Erro ao inicializar coleções: {str(e)}")
+            raise e
+
 
 # Instância global do banco de dados
 db = Database()

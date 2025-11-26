@@ -9,6 +9,7 @@ from bot.commands import MusicCommands, HelpCommands
 from bot.commands_monitor import MonitorCommands
 from bot.commands_ranking import RankingCommands
 from bot.scheduler import MonitorScheduler
+from bot.cogs_activity import ActivityTracker
 
 # --- CONFIGURAÇÃO DE LOGGING ---
 log_filename = datetime.now().strftime("bot_log_%Y-%m-%d.log")
@@ -63,6 +64,7 @@ async def setup_cogs():
     await bot.add_cog(MonitorCommands(bot))
     await bot.add_cog(RankingCommands(bot))
     await bot.add_cog(HelpCommands(bot))
+    await bot.add_cog(ActivityTracker(bot))
 
     # Iniciar o scheduler de monitoramento
     await scheduler.start()
