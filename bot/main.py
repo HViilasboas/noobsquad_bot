@@ -34,6 +34,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
 intents.presences = True
+intents.members = True  # Necessário para acessar guild.members
 bot = commands.Bot(
     command_prefix="!", intents=intents, heartbeat_timeout=60.0, help_command=None
 )
