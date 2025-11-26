@@ -45,11 +45,15 @@ class Database:
             self.client.close()
             logging.info("Conexão com MongoDB fechada.")
 
-    async def create_user_profile(self, discord_id: str, username: str):
+    async def create_user_profile(self, discord_id: str, username: str, display_name: str = None):
         """Cria um novo perfil de usuário se não existir"""
         try:
             # Criamos um novo perfil - os valores padrão serão inicializados pelo __post_init__
-            profile = UserProfile(discord_id=discord_id, username=username)
+            profile = UserProfile(
+                discord_id=discord_id,
+                username=username,
+                display_name=display_name or username
+            )
 
             result = self.db.user_profiles.update_one(
                 {"discord_id": discord_id},
@@ -57,7 +61,7 @@ class Database:
                 upsert=True,
             )
             if result.upserted_id:
-                logging.info(f"Novo perfil criado para usuário {username}")
+                logging.info(f"Novo perfil criado para usuário {username} (display: {display_name or username})")
             return True
         except Exception as e:
             logging.error(f"Erro ao criar perfil do usuário: {str(e)}")
@@ -444,17 +448,30 @@ class Database:
             return False
 
     async def sync_member_profiles(self, members_data: List[dict]) -> int:
-        """Sincroniza perfis de membros, criando se não existirem"""
+        """Sincroniza perfis de membros, criando se não existirem e atualizando display_name"""
         count = 0
         try:
             for member in members_data:
                 discord_id = str(member["id"])
                 username = member["name"]
+                display_name = member.get("display_name", username)
 
                 # Verifica se existe
-                if not self.db.user_profiles.find_one({"discord_id": discord_id}):
-                    await self.create_user_profile(discord_id, username)
+                existing = self.db.user_profiles.find_one({"discord_id": discord_id})
+
+                if not existing:
+                    # Cria novo perfil
+                    await self.create_user_profile(discord_id, username, display_name)
                     count += 1
+                else:
+                    # Atualiza username e display_name se mudaram
+                    self.db.user_profiles.update_one(
+                        {"discord_id": discord_id},
+                        {"$set": {
+                            "username": username,
+                            "display_name": display_name
+                        }}
+                    )
 
             if count > 0:
                 logging.info(f"Sincronização concluída: {count} novos perfis criados.")

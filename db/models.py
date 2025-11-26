@@ -138,6 +138,7 @@ class UserProfile:
 
     discord_id: str
     username: str
+    display_name: str = None  # Nickname do servidor (opcional)
     music_history: List[Song] = None  # Será inicializado como lista vazia
     music_preferences: List[MusicPreference] = (
         None  # Será inicializado como lista vazia
@@ -159,6 +160,7 @@ class UserProfile:
         return cls(
             discord_id=data["discord_id"],
             username=data["username"],
+            display_name=data.get("display_name"),
             music_history=[
                 Song(
                     title=song["title"],
@@ -186,6 +188,7 @@ class UserProfile:
         return {
             "discord_id": self.discord_id,
             "username": self.username,
+            "display_name": self.display_name,
             "music_history": [
                 {
                     "title": song.title,

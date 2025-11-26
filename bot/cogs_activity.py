@@ -81,10 +81,14 @@ class ActivityTracker(commands.Cog):
                         async for member in guild.fetch_members(limit=None):
                             if member.bot:
                                 bot_count += 1
-                                logging.debug(f"  [BOT IGNORADO] {member.name} (ID: {member.id})")
+                                logging.debug(f"  [BOT IGNORADO] {member.display_name} (ID: {member.id})")
                             else:
-                                members_data.append({"id": str(member.id), "name": member.name})
-                                logging.info(f"  [PROCESSANDO] Membro: {member.name} (ID: {member.id})")
+                                members_data.append({
+                                    "id": str(member.id),
+                                    "name": member.name,
+                                    "display_name": member.display_name
+                                })
+                                logging.info(f"  [PROCESSANDO] Membro: {member.display_name} (@{member.name}) (ID: {member.id})")
 
                         logging.info(f"Total de membros buscados via API: {len(members_data) + bot_count}")
                     except discord.Forbidden:
@@ -98,10 +102,14 @@ class ActivityTracker(commands.Cog):
                     for member in guild.members:
                         if member.bot:
                             bot_count += 1
-                            logging.debug(f"  [BOT IGNORADO] {member.name} (ID: {member.id})")
+                            logging.debug(f"  [BOT IGNORADO] {member.display_name} (ID: {member.id})")
                         else:
-                            members_data.append({"id": str(member.id), "name": member.name})
-                            logging.info(f"  [PROCESSANDO] Membro: {member.name} (ID: {member.id})")
+                            members_data.append({
+                                "id": str(member.id),
+                                "name": member.name,
+                                "display_name": member.display_name
+                            })
+                            logging.info(f"  [PROCESSANDO] Membro: {member.display_name} (@{member.name}) (ID: {member.id})")
 
                 logging.info(f"Resumo: {len(members_data)} membros válidos, {bot_count} bots ignorados")
 
@@ -114,8 +122,8 @@ class ActivityTracker(commands.Cog):
                     logging.warning(f"Verifique se o bot tem o intent 'members' habilitado no Discord Developer Portal")
         except Exception as e:
             logging.error(f"❌ Erro na task de sincronização de membros: {str(e)}")
-        except Exception as e:
-            logging.error(f"Erro na task de sincronização de membros: {str(e)}")
+        finally:
+            logging.info("=" * 60)
 
     @sync_members_task.before_loop
     async def before_sync(self):
