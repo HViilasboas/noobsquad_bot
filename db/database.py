@@ -66,7 +66,7 @@ class Database:
     async def add_music_preference(self, discord_id: str, name: str, pref_type: str):
         """Adiciona ou atualiza uma preferência musical"""
         try:
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
             result = self.db.user_profiles.update_one(
                 {
                     "discord_id": discord_id,
@@ -114,7 +114,7 @@ class Database:
             song = Song(
                 title=song_info["title"],
                 url=song_info["url"],
-                played_at=datetime.utcnow(),
+                played_at=datetime.now(UTC),
                 artist=song_info.get("artist"),
                 genre=song_info.get("genre"),
             )
@@ -529,13 +529,6 @@ class Database:
             self.monitored_channels.create_index("channel_name")
 
             # Índices para atividades
-            self.user_activities.create_index(
-                [("user_id", 1), ("activity_name", 1)], unique=True
-            )
-            self.user_activities.create_index("total_seconds")
-            self.user_activities.create_index("activity_name")
-
-            # Índices para novas coleções
             self.activities.create_index("name", unique=True)
             self.activity_history.create_index(
                 [("user_id", 1), ("activity_name", 1), ("end_time", 1)]
