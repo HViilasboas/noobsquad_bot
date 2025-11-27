@@ -107,7 +107,7 @@ class RankingCommands(commands.Cog):
         for i, activity in enumerate(activities, 1):
             hours = activity["total_seconds"] / 3600
             description += (
-                f"**{i}. {activity['activity_name']}**\\n⏱️ {hours:.1f} horas\\n\\n"
+                f"**{i}. {activity['activity_name']}**\n⏱️ {hours:.1f} horas\n\n"
             )
 
         embed.description = description
@@ -132,7 +132,7 @@ class RankingCommands(commands.Cog):
             user_name = user.display_name if user else f"User {activity['user_id']}"
 
             hours = activity["total_seconds"] / 3600
-            description += f"**{i}. {user_name}**\\n⏱️ {hours:.1f} horas\\n\\n"
+            description += f"**{i}. {user_name}**\n⏱️ {hours:.1f} horas\n\n"
 
         embed.description = description
         await ctx.send(embed=embed)
@@ -146,9 +146,7 @@ class RankingCommands(commands.Cog):
             return
 
         embed = discord.Embed(
-            title="🏆 Top Atividades Mais Realizadas",
-            description="Ranking global das atividades por tempo total",
-            color=0xE74C3C,
+            title="🏆 Top Atividades Mais Realizadas\n", color=0xE74C3C
         )
 
         description = ""
@@ -159,10 +157,10 @@ class RankingCommands(commands.Cog):
             emoji = trophy_emojis[i - 1] if i <= 3 else f"**{i}.**"
 
             description += (
-                f"{emoji} **{activity['activity_name']}**\\n"
+                f"{emoji} **{activity['activity_name']}**\n"
                 f"⏱️ {hours:.1f} horas | "
                 f"👥 {activity['player_count']} jogador{'es' if activity['player_count'] > 1 else ''} | "
-                f"🎮 {activity['session_count']} sessõ{'es' if activity['session_count'] > 1 else ''}\\n\\n"
+                f"🎮 {activity['session_count']} sessõ{'es' if activity['session_count'] > 1 else ''}\n\n"
             )
 
         embed.description = description
@@ -177,11 +175,7 @@ class RankingCommands(commands.Cog):
             await ctx.send("📉 Nenhum membro com atividades registradas ainda.")
             return
 
-        embed = discord.Embed(
-            title="👑 Top Membros Mais Ativos",
-            description="Ranking de membros por tempo total em atividades",
-            color=0x9B59B6,
-        )
+        embed = discord.Embed(title="👑 Top Membros Mais Ativos", color=0x9B59B6)
 
         description = ""
         medal_emojis = ["🥇", "🥈", "🥉"]
@@ -194,16 +188,16 @@ class RankingCommands(commands.Cog):
             hours = member["total_seconds"] / 3600
             emoji = medal_emojis[i - 1] if i <= 3 else f"**{i}.**"
 
-            description += f"{emoji} **{user_name}**\\n⏱️ {hours:.1f} horas totais\\n"
+            description += f"{emoji} **{user_name}**\n⏱️ {hours:.1f} horas totais\n"
 
             # Mostra as top 3 atividades do membro
             if member["top_activities"]:
-                description += "🎮 Top atividades:\\n"
+                description += "🎮 Top atividades:\n"
                 for j, act in enumerate(member["top_activities"][:3], 1):
                     act_hours = act["seconds"] / 3600
-                    description += f"   {j}. {act['name']} ({act_hours:.1f}h)\\n"
+                    description += f"   {j}. {act['name']} ({act_hours:.1f}h)\n"
 
-            description += "\\n"
+            description += "\n"
 
         embed.description = description
         embed.set_footer(text="Ranking baseado no tempo total de atividades")
