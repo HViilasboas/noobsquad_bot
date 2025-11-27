@@ -45,14 +45,16 @@ class Database:
             self.client.close()
             logging.info("Conexão com MongoDB fechada.")
 
-    async def create_user_profile(self, discord_id: str, username: str, display_name: str = None):
+    async def create_user_profile(
+        self, discord_id: str, username: str, display_name: str = None
+    ):
         """Cria um novo perfil de usuário se não existir"""
         try:
             # Criamos um novo perfil - os valores padrão serão inicializados pelo __post_init__
             profile = UserProfile(
                 discord_id=discord_id,
                 username=username,
-                display_name=display_name or username
+                display_name=display_name or username,
             )
 
             result = self.db.user_profiles.update_one(
@@ -61,7 +63,9 @@ class Database:
                 upsert=True,
             )
             if result.upserted_id:
-                logging.info(f"Novo perfil criado para usuário {username} (display: {display_name or username})")
+                logging.info(
+                    f"Novo perfil criado para usuário {username} (display: {display_name or username})"
+                )
             return True
         except Exception as e:
             logging.error(f"Erro ao criar perfil do usuário: {str(e)}")
@@ -357,11 +361,13 @@ class Database:
             cursor = self.activity_history.aggregate(pipeline)
             results = []
             for doc in cursor:
-                results.append({
-                    "activity_name": doc["_id"],
-                    "total_seconds": doc["total_seconds"],
-                    "last_seen": doc["last_seen"],
-                })
+                results.append(
+                    {
+                        "activity_name": doc["_id"],
+                        "total_seconds": doc["total_seconds"],
+                        "last_seen": doc["last_seen"],
+                    }
+                )
             return results
         except Exception as e:
             logging.error(f"Erro ao buscar atividades do usuário: {str(e)}")
@@ -440,7 +446,9 @@ class Database:
                         {"_id": doc["_id"]}, {"$set": {"end_time": now}}
                     )
                     modified = True
-                    logging.info(f"Sessão de atividade {activity_name} finalizada para usuário {user_id}")
+                    logging.info(
+                        f"Sessão de atividade {activity_name} finalizada para usuário {user_id}"
+                    )
 
             return modified
         except Exception as e:
@@ -467,10 +475,7 @@ class Database:
                     # Atualiza username e display_name se mudaram
                     self.db.user_profiles.update_one(
                         {"discord_id": discord_id},
-                        {"$set": {
-                            "username": username,
-                            "display_name": display_name
-                        }}
+                        {"$set": {"username": username, "display_name": display_name}},
                     )
 
             if count > 0:
@@ -522,15 +527,139 @@ class Database:
             cursor = self.activity_history.aggregate(pipeline)
             results = []
             for doc in cursor:
-                results.append({
-                    "user_id": doc["_id"],
-                    "activity_name": doc["activity_name"],
-                    "total_seconds": doc["total_seconds"],
-                    "last_seen": doc["last_seen"],
-                })
+                results.append(
+                    {
+                        "user_id": doc["_id"],
+                        "activity_name": doc["activity_name"],
+                        "total_seconds": doc["total_seconds"],
+                        "last_seen": doc["last_seen"],
+                    }
+                )
             return results
         except Exception as e:
             logging.error(f"Erro ao buscar ranking global da atividade: {str(e)}")
+            return []
+
+    async def get_top_activities_global(self, limit: int = 10) -> List[dict]:
+        """Retorna as atividades mais realizadas globalmente, ranqueadas por tempo total"""
+        try:
+            # Usa agregação do MongoDB para calcular totais por atividade
+            pipeline = [
+                # Filtra apenas sessões finalizadas
+                {"$match": {"end_time": {"$ne": None}}},
+                # Agrupa por atividade e soma as durações
+                {
+                    "$group": {
+                        "_id": "$activity_name",
+                        "total_seconds": {
+                            "$sum": {
+                                "$divide": [
+                                    {"$subtract": ["$end_time", "$start_time"]},
+                                    1000,  # Converte milissegundos para segundos
+                                ]
+                            }
+                        },
+                        "unique_players": {"$addToSet": "$user_id"},
+                        "session_count": {"$sum": 1},
+                    }
+                },
+                # Adiciona contagem de jogadores únicos
+                {
+                    "$project": {
+                        "activity_name": "$_id",
+                        "total_seconds": 1,
+                        "player_count": {"$size": "$unique_players"},
+                        "session_count": 1,
+                    }
+                },
+                # Ordena por tempo total decrescente
+                {"$sort": {"total_seconds": -1}},
+                # Limita os resultados
+                {"$limit": limit},
+            ]
+
+            cursor = self.activity_history.aggregate(pipeline)
+            results = []
+            for doc in cursor:
+                results.append(
+                    {
+                        "activity_name": doc["activity_name"],
+                        "total_seconds": doc["total_seconds"],
+                        "player_count": doc["player_count"],
+                        "session_count": doc["session_count"],
+                    }
+                )
+            return results
+        except Exception as e:
+            logging.error(f"Erro ao buscar ranking global de atividades: {str(e)}")
+            return []
+
+    async def get_top_members_by_activity_time(self, limit: int = 10) -> List[dict]:
+        """Retorna os membros ranqueados por tempo total em atividades"""
+        try:
+            # Usa agregação do MongoDB para calcular totais por usuário
+            pipeline = [
+                # Filtra apenas sessões finalizadas
+                {"$match": {"end_time": {"$ne": None}}},
+                # Agrupa por usuário e soma as durações
+                {
+                    "$group": {
+                        "_id": "$user_id",
+                        "total_seconds": {
+                            "$sum": {
+                                "$divide": [
+                                    {"$subtract": ["$end_time", "$start_time"]},
+                                    1000,  # Converte milissegundos para segundos
+                                ]
+                            }
+                        },
+                        "activities": {
+                            "$push": {
+                                "name": "$activity_name",
+                                "duration": {
+                                    "$divide": [
+                                        {"$subtract": ["$end_time", "$start_time"]},
+                                        1000,
+                                    ]
+                                },
+                            }
+                        },
+                    }
+                },
+                # Ordena por tempo total decrescente
+                {"$sort": {"total_seconds": -1}},
+                # Limita os resultados
+                {"$limit": limit},
+            ]
+
+            cursor = self.activity_history.aggregate(pipeline)
+            results = []
+            for doc in cursor:
+                # Agrupa e soma atividades duplicadas
+                activity_totals = {}
+                for activity in doc["activities"]:
+                    name = activity["name"]
+                    duration = activity["duration"]
+                    activity_totals[name] = activity_totals.get(name, 0) + duration
+
+                # Ordena atividades por duração e pega as top 3
+                top_activities = sorted(
+                    activity_totals.items(), key=lambda x: x[1], reverse=True
+                )[:3]
+
+                results.append(
+                    {
+                        "user_id": doc["_id"],
+                        "total_seconds": doc["total_seconds"],
+                        "top_activities": [
+                            {"name": name, "seconds": seconds}
+                            for name, seconds in top_activities
+                        ],
+                    }
+                )
+            return results
+        except Exception as e:
+            logging.error(f"Erro ao buscar ranking de membros por atividade: {str(e)}")
             return []
 
     def initialize_collections(self):

@@ -45,10 +45,16 @@ class RankingCommands(commands.Cog):
         Uso:
         !rank atividades [usuario] - Mostra os jogos mais jogados por um usuário
         !rank global <jogo> - Mostra o ranking global de um jogo
+        !rank top_atividades - Mostra as atividades mais realizadas globalmente
+        !rank top_membros - Mostra os membros com mais horas em atividades
         """
         if not category:
             await ctx.send(
-                "❌ Uso correto: `!rank atividades [usuario]` ou `!rank global <jogo>`"
+                "❌ Uso correto:\n"
+                "`!rank atividades [usuario]` - Top atividades de um usuário\n"
+                "`!rank global <jogo>` - Ranking global de um jogo\n"
+                "`!rank top_atividades` - Atividades mais realizadas\n"
+                "`!rank top_membros` - Membros com mais horas"
             )
             return
 
@@ -63,8 +69,14 @@ class RankingCommands(commands.Cog):
                 )
                 return
             await self._show_global_rank(ctx, target)
+        elif category == "top_atividades":
+            await self._show_top_activities_global(ctx)
+        elif category == "top_membros":
+            await self._show_top_members(ctx)
         else:
-            await ctx.send("❌ Categoria inválida! Use `atividades` ou `global`.")
+            await ctx.send(
+                "❌ Categoria inválida! Use `atividades`, `global`, `top_atividades` ou `top_membros`."
+            )
 
     async def _show_user_activities(self, ctx, target_user: str = None):
         """Mostra as atividades mais frequentes de um usuário"""
@@ -94,7 +106,9 @@ class RankingCommands(commands.Cog):
         description = ""
         for i, activity in enumerate(activities, 1):
             hours = activity["total_seconds"] / 3600
-            description += f"**{i}. {activity['activity_name']}**\n⏱️ {hours:.1f} horas\n\n"
+            description += (
+                f"**{i}. {activity['activity_name']}**\\n⏱️ {hours:.1f} horas\\n\\n"
+            )
 
         embed.description = description
         await ctx.send(embed=embed)
@@ -118,7 +132,79 @@ class RankingCommands(commands.Cog):
             user_name = user.display_name if user else f"User {activity['user_id']}"
 
             hours = activity["total_seconds"] / 3600
-            description += f"**{i}. {user_name}**\n⏱️ {hours:.1f} horas\n\n"
+            description += f"**{i}. {user_name}**\\n⏱️ {hours:.1f} horas\\n\\n"
 
         embed.description = description
+        await ctx.send(embed=embed)
+
+    async def _show_top_activities_global(self, ctx):
+        """Mostra as atividades mais realizadas globalmente"""
+        activities = await db.get_top_activities_global()
+
+        if not activities:
+            await ctx.send("📉 Nenhuma atividade registrada ainda no servidor.")
+            return
+
+        embed = discord.Embed(
+            title="🏆 Top Atividades Mais Realizadas",
+            description="Ranking global das atividades por tempo total",
+            color=0xE74C3C,
+        )
+
+        description = ""
+        trophy_emojis = ["🥇", "🥈", "🥉"]
+
+        for i, activity in enumerate(activities, 1):
+            hours = activity["total_seconds"] / 3600
+            emoji = trophy_emojis[i - 1] if i <= 3 else f"**{i}.**"
+
+            description += (
+                f"{emoji} **{activity['activity_name']}**\\n"
+                f"⏱️ {hours:.1f} horas | "
+                f"👥 {activity['player_count']} jogador{'es' if activity['player_count'] > 1 else ''} | "
+                f"🎮 {activity['session_count']} sessõ{'es' if activity['session_count'] > 1 else ''}\\n\\n"
+            )
+
+        embed.description = description
+        embed.set_footer(text="Ranking baseado no tempo total de todas as sessões")
+        await ctx.send(embed=embed)
+
+    async def _show_top_members(self, ctx):
+        """Mostra os membros com mais horas em atividades"""
+        members = await db.get_top_members_by_activity_time()
+
+        if not members:
+            await ctx.send("📉 Nenhum membro com atividades registradas ainda.")
+            return
+
+        embed = discord.Embed(
+            title="👑 Top Membros Mais Ativos",
+            description="Ranking de membros por tempo total em atividades",
+            color=0x9B59B6,
+        )
+
+        description = ""
+        medal_emojis = ["🥇", "🥈", "🥉"]
+
+        for i, member in enumerate(members, 1):
+            # Tentar pegar o nome do usuário do cache do bot ou do banco
+            user = ctx.guild.get_member(int(member["user_id"]))
+            user_name = user.display_name if user else f"User {member['user_id']}"
+
+            hours = member["total_seconds"] / 3600
+            emoji = medal_emojis[i - 1] if i <= 3 else f"**{i}.**"
+
+            description += f"{emoji} **{user_name}**\\n⏱️ {hours:.1f} horas totais\\n"
+
+            # Mostra as top 3 atividades do membro
+            if member["top_activities"]:
+                description += "🎮 Top atividades:\\n"
+                for j, act in enumerate(member["top_activities"][:3], 1):
+                    act_hours = act["seconds"] / 3600
+                    description += f"   {j}. {act['name']} ({act_hours:.1f}h)\\n"
+
+            description += "\\n"
+
+        embed.description = description
+        embed.set_footer(text="Ranking baseado no tempo total de atividades")
         await ctx.send(embed=embed)
