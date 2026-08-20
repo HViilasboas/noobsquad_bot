@@ -14,6 +14,7 @@ def clean_youtube_url(url: str) -> str:
     essential_params = {}
     if 'v' in query_params and 'list' in query_params:
         essential_params['v'] = query_params['v']
+        essential_params['list'] = query_params['list']
     elif 'list' in query_params:
         essential_params['list'] = query_params['list']
     elif 'v' in query_params:
@@ -31,6 +32,14 @@ def is_youtube_url(url: str) -> bool:
         logging.warning(f'URL inválida: {url}. Deve ser uma URL do YouTube.')
         return False
     return True
+
+def get_youtube_playlist_url(url: str) -> str | None:
+    """Converte links watch com list em uma URL canônica de playlist."""
+    parsed_url = urllib.parse.urlparse(url)
+    list_id = urllib.parse.parse_qs(parsed_url.query).get('list', [None])[0]
+    if not list_id:
+        return None
+    return f"https://www.youtube.com/playlist?{urllib.parse.urlencode({'list': list_id})}"
 
 async def stream_musica(url: str, preset_name: str = "padrao"):
     """Extrai o stream de áudio direto de uma URL do YouTube."""

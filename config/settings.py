@@ -5,7 +5,7 @@ load_dotenv()
 
 # Discord configs
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-REBOOT_CHANNEL_ID = os.getenv('REBOOT_CHANNEL_ID')
+REBOOT_CHANNEL_ID = int(os.getenv('REBOOT_CHANNEL_ID', 0))
 CHAT_JUKEBOX = os.getenv('CHAT_JUKEBOX')
 
 # Notification channel
@@ -25,6 +25,20 @@ TWITCH_CLIENT_SECRET = os.getenv('TWITCH_CLIENT_SECRET')
 # Monitor intervals (em segundos)
 CHECK_YOUTUBE_INTERVAL = int(os.getenv('CHECK_YOUTUBE_INTERVAL', 300))  # 5 minutos
 CHECK_TWITCH_INTERVAL = int(os.getenv('CHECK_TWITCH_INTERVAL', 180))   # 3 minutos
+
+# Sync de membros - Horário de execução (formato HH:MM em UTC)
+SYNC_MEMBERS_TIME = os.getenv('SYNC_MEMBERS_TIME', '03:00')  # Padrão: 03:00 UTC
+
+def parse_sync_time(time_str: str) -> tuple[int, int]:
+    """Converte string HH:MM para tupla (hora, minuto)"""
+    try:
+        hour, minute = time_str.split(':')
+        return int(hour), int(minute)
+    except (ValueError, AttributeError):
+        # Fallback para 03:00 se formato inválido
+        return 3, 0
+
+SYNC_MEMBERS_HOUR, SYNC_MEMBERS_MINUTE = parse_sync_time(SYNC_MEMBERS_TIME)
 
 # Equalizer presets
 EQUALIZER_PRESETS = {

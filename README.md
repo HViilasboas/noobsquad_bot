@@ -70,6 +70,25 @@ A biblioteca `yt-dlp` é usada para extrair áudio do YouTube. Devido a mudança
 - Para melhor qualidade de áudio, utilize canais de voz com bitrate acima de 128 kbps.
 - O comando `!reboot` é restrito ao owner do bot.
 
+## Inicialização automática no Windows
+
+Execute `run.bat` na raiz do projeto. Ele agora:
+
+1. inicia o Docker Desktop caso necessário;
+2. cria/inicia o MongoDB definido em `docker-compose.yml` e aguarda o healthcheck;
+3. cria a `.venv` e instala as dependências quando ela não existir;
+4. mantém o bot em execução, reiniciando-o após falhas.
+
+Comandos de manutenção, disponíveis somente para o proprietário do bot:
+
+- `!reiniciar` (ou `!reboot`): reinicia apenas o processo;
+- `!rebuild` (ou `!recriar_ambiente`): encerra o bot, apaga a `.venv`, reinstala as
+  dependências — incluindo a versão atual do `yt-dlp` — e inicia novamente.
+
+O volume `mongodb_data` preserva os dados mesmo quando o container é recriado.
+Para iniciar junto com o Windows, crie uma tarefa no Agendador de Tarefas apontando
+para o caminho completo de `run.bat`, configurada para executar no logon.
+
 ---
 
 Dúvidas ou problemas? Consulte os comentários no código ou abra uma issue.

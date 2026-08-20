@@ -57,7 +57,7 @@ class MonitorCommands(commands.Cog):
                 added_by=str(ctx.author.id)
             )
 
-            # Adiciona ao banco de dados
+            # Adiciona ao banco de dados (coleção separada)
             success = await db.add_monitored_channel(str(ctx.author.id), channel)
             if success:
                 embed = discord.Embed(
@@ -67,7 +67,7 @@ class MonitorCommands(commands.Cog):
                 )
                 await ctx.send(embed=embed)
             else:
-                await ctx.send("❌ Erro ao adicionar canal. Talvez ele já esteja sendo monitorado?")
+                await ctx.send("❌ Erro ao adicionar canal. Talvez ele já esteja sendo monitorado por você?")
 
         except Exception as e:
             logging.error(f"Erro ao adicionar canal YouTube: {str(e)}")
@@ -103,18 +103,22 @@ class MonitorCommands(commands.Cog):
                 )
                 await ctx.send(embed=embed)
             else:
-                await ctx.send("❌ Erro ao adicionar canal. Talvez ele já esteja sendo monitorado?")
+                await ctx.send("❌ Erro ao adicionar canal. Talvez ele já esteja sendo monitorado por você?")
 
         except Exception as e:
             logging.error(f"Erro ao adicionar canal Twitch: {str(e)}")
-            await ctx.send("❌ Ocorreu um erro ao adicionar o canal.")
+            await ctx.send("❌ Ocorreu um erro ao adicionar o canal Twitch.")
 
     @commands.command(name='listar_monitoramento')
     async def list_monitored(self, ctx):
         """Lista todos os canais monitorados pelo usuário"""
         try:
-            profile = await db.get_user_profile(str(ctx.author.id))
-            if not profile or not profile.monitored_channels:
+            user_id = str(ctx.author.id)
+            # Busca na coleção monitored_channels todos os documentos onde o usuário é subscriber
+            cursor = db.monitored_channels.find({'subscribers': user_id})
+            channels = [MonitoredChannel.from_dict(doc) for doc in cursor]
+
+            if not channels:
                 await ctx.send("Você não está monitorando nenhum canal!")
                 return
 
@@ -123,8 +127,8 @@ class MonitorCommands(commands.Cog):
                 color=0x00ff00
             )
 
-            youtube_channels = [c for c in profile.monitored_channels if c.platform == 'youtube']
-            twitch_channels = [c for c in profile.monitored_channels if c.platform == 'twitch']
+            youtube_channels = [c for c in channels if c.platform == 'youtube']
+            twitch_channels = [c for c in channels if c.platform == 'twitch']
 
             if youtube_channels:
                 youtube_text = "\n".join(f"• {c.channel_name}" for c in youtube_channels)
