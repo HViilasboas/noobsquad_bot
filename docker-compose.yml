@@ -1,0 +1,69 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.2
+    container_name: noobsquad-mediamtx
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      MTX_API: "yes"
+      MTX_APIADDRESS: ":9997"
+      MTX_AUTHMETHOD: "http"
+      MTX_AUTHHTTPADDRESS: "http://host.docker.internal:${STREAM_WEB_PORT:-8080}/api/mediamtx/auth"
+      MTX_AUTHHTTPEXCLUDE_0_ACTION: "api"
+      MTX_WEBRTC: "yes"
+      MTX_WEBRTCADDRESS: ":8889"
+      MTX_WEBRTCALLOWORIGINS: "${STREAM_PUBLIC_ORIGIN:-http://localhost:8080}"
+      MTX_WEBRTCADDITIONALHOSTS: "${STREAM_MEDIA_PUBLIC_HOST:-127.0.0.1}"
+      MTX_WEBRTCLOCALUDPADDRESS: ":${STREAM_MEDIA_UDP_PORT:-8189}"
+      MTX_WEBRTCLOCALTCPADDRESS: ":${STREAM_MEDIA_UDP_PORT:-8189}"
+      MTX_WEBRTCICESERVERS2_0_URL: "${STREAM_ICE_SERVER_0_URL:-stun:stun.l.google.com:19302}"
+      MTX_WEBRTCICESERVERS2_1_URL: "${STREAM_ICE_SERVER_1_URL:-stun:stun1.l.google.com:19302}"
+      MTX_WEBRTCICESERVERS2_1_USERNAME: "${STREAM_ICE_SERVER_1_USERNAME:-}"
+      MTX_WEBRTCICESERVERS2_1_PASSWORD: "${STREAM_ICE_SERVER_1_PASSWORD:-}"
+    ports:
+      - "127.0.0.1:8889:8889"
+      - "${STREAM_MEDIA_UDP_PORT:-8189}:${STREAM_MEDIA_UDP_PORT:-8189}/tcp"
+      - "${STREAM_MEDIA_UDP_PORT:-8189}:${STREAM_MEDIA_UDP_PORT:-8189}/udp"
+      - "127.0.0.1:9997:9997"
+
+  caddy:
+    image: caddy:2
+    container_name: noobsquad-caddy
+    restart: unless-stopped
+    environment:
+      STREAM_DOMAIN: "${STREAM_DOMAIN:-localhost}"
+      STREAM_HTTP_PORT: "${STREAM_HTTP_PORT:-28080}"
+      STREAM_PUBLIC_PORT: "${STREAM_PUBLIC_PORT:-28443}"
+    ports:
+      - "${STREAM_HTTP_PORT:-28080}:${STREAM_HTTP_PORT:-28080}"
+      - "${STREAM_PUBLIC_PORT:-28443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy_certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mediamtx
+
+  mongodb:
+    image: mongo:7
+    container_name: noobsquad-mongodb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+
+volumes:
+  mongodb_data:
+  caddy_data:
+  caddy_config:

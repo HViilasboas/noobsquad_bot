@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Compartilhar tela | NoobSquad</title>
+  <link rel="stylesheet" href="/static/stream.css">
+  <script id="stream-config" type="application/json">{{STREAM_CONFIG}}</script>
+  <script src="/static/stream-diagnostics.js" defer></script>
+  <script src="/static/presenter.js" defer></script>
+</head>
+<body data-stream-role="present">
+  <main class="card">
+    <div class="eyebrow">NOOBSQUAD · TRANSMISSÃO PRIVADA</div>
+    <h1>Compartilhar sua tela</h1>
+    <p class="intro">Ao iniciar, o navegador mostrará um seletor. Escolha uma tela inteira, uma janela de aplicativo ou uma aba.</p>
+    <label class="option">
+      <input id="share-audio" type="checkbox">
+      <span>Incluir áudio do sistema, se o navegador oferecer essa opção</span>
+    </label>
+    <div class="actions">
+      <button id="start-share" class="primary">Escolher o que compartilhar</button>
+      <button id="stop-share" class="danger" disabled>Encerrar transmissão</button>
+    </div>
+    <p id="share-status" class="status" role="status">A transmissão ainda não começou.</p>
+    <p id="share-quality" class="quality" aria-live="polite"></p>
+    <video id="preview" class="video" autoplay muted playsinline></video>
+    <p class="footnote">Não é necessário instalar um agente local. A transmissão começa somente depois que você escolhe o conteúdo no navegador. Mantenha este link privado.</p>
+  </main>
+</body>
+</html>

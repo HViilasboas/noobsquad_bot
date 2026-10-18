@@ -1,0 +1,35 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  streaming-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install streaming test dependencies
+        run: python -m pip install aiohttp==3.14.3 python-dotenv==1.2.3
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+
+      - name: Run streaming tests
+        run: python -m unittest discover --start-directory tests --pattern "test_*.py" --verbose
+
+      - name: Run streaming viewer tests
+        run: node --test tests/streaming_viewer.test.js

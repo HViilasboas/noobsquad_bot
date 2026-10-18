@@ -9,3 +9,4 @@
 rebuild.flag
 __pycache__/
 *.py[cod]
+caddy_certs/

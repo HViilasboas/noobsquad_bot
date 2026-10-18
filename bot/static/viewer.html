@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Assistir transmissão | NoobSquad</title>
+  <link rel="stylesheet" href="/static/stream.css">
+  <script id="stream-config" type="application/json">{{STREAM_CONFIG}}</script>
+  <script src="/static/stream-diagnostics.js" defer></script>
+  <script src="/static/viewer.js" defer></script>
+</head>
+<body data-stream-role="watch">
+  <main class="card wide">
+    <div class="eyebrow">NOOBSQUAD · TRANSMISSÃO AO VIVO</div>
+    <h1>Assistir transmissão</h1>
+    <p class="intro">O player aguardará o apresentador. Clique para conectar quando estiver pronto.</p>
+    <div class="actions">
+      <button id="connect-viewer" class="primary">Conectar ao vivo</button>
+      <button id="toggle-audio" class="secondary" disabled>Ativar áudio</button>
+    </div>
+    <p id="viewer-status" class="status" role="status">Aguardando o início da transmissão.</p>
+    <p id="viewer-quality" class="quality" aria-live="polite"></p>
+    <video id="stream-video" class="video" autoplay muted playsinline controls></video>
+    <p class="footnote">Se o áudio estiver disponível, use “Ativar áudio” depois de conectar.</p>
+  </main>
+</body>
+</html>

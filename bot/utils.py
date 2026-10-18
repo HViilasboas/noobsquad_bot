@@ -12,9 +12,20 @@ def clean_youtube_url(url: str) -> str:
     query_params = urllib.parse.parse_qs(parsed_url.query)
 
     essential_params = {}
-    if 'v' in query_params and 'list' in query_params:
+    # Listas iniciadas por RD são mixes/radios automáticos do YouTube. Elas não
+    # podem ser abertas pelo yt-dlp como playlist; nesse caso, use o vídeo que
+    # originou o mix.
+    is_radio_mix = (
+        'v' in query_params
+        and 'list' in query_params
+        and query_params['list'][0].startswith('RD')
+    )
+
+    if 'v' in query_params and 'list' in query_params and not is_radio_mix:
         essential_params['v'] = query_params['v']
         essential_params['list'] = query_params['list']
+    elif is_radio_mix:
+        essential_params['v'] = query_params['v']
     elif 'list' in query_params:
         essential_params['list'] = query_params['list']
     elif 'v' in query_params:
@@ -53,6 +64,20 @@ async def stream_musica(url: str, preset_name: str = "padrao"):
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+
+            # Consultas ytsearch retornam uma lista de resultados. Resolver aqui
+            # permite enfileirar playlists importadas sem bloquear o comando inteiro.
+            if info and info.get('entries'):
+                info = next((entry for entry in info['entries'] if entry), None)
+
+            # Dependendo do extractor, o resultado da busca pode conter somente a
+            # página do vídeo. Faça uma segunda extração para obter a URL de áudio.
+            if info and 'url' not in info:
+                video_url = info.get('webpage_url') or info.get('original_url')
+                if video_url:
+                    info = await asyncio.to_thread(
+                        ydl.extract_info, video_url, download=False
+                    )
 
             if not info or 'url' not in info:
                 logging.error(f'Falha ao obter URL de stream para {url}.')

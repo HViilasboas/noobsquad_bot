@@ -1,0 +1,24 @@
+{
+	# Usa portas externas alternativas para HTTP e HTTPS.
+	auto_https disable_redirects
+	# O TLS público usa a porta 28443; não anunciar HTTP/3 na porta 443 fechada.
+	servers {
+		protocols h1 h2
+	}
+}
+
+http://{$STREAM_DOMAIN}:{$STREAM_HTTP_PORT} {
+	redir https://{$STREAM_DOMAIN}:{$STREAM_PUBLIC_PORT}{uri} permanent
+}
+
+{$STREAM_DOMAIN} {
+	tls /etc/caddy/certs/noobsquad_tls_fullchain.pem /etc/caddy/certs/noobsquad_tls.key
+
+	handle_path /media/* {
+		reverse_proxy mediamtx:8889
+	}
+
+	handle {
+		reverse_proxy host.docker.internal:8080
+	}
+}

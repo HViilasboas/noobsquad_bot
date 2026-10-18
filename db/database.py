@@ -1,5 +1,5 @@
 from pymongo import MongoClient
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 import logging
 from config.settings import MONGODB_URI, DATABASE_NAME
 from .models import (
@@ -21,6 +21,10 @@ class Database:
         self.monitored_channels = None  # Nova coleção para canais monitorados
         self.activities = None
         self.activity_history = None
+        self.steam_releases = None
+        self.steam_game_cache = None
+        self.steam_notification_settings = None
+        self.steam_notification_history = None
 
     def connect(self):
         """Estabelece conexão com o MongoDB"""
@@ -32,6 +36,10 @@ class Database:
             self.monitored_channels = self.db.monitored_channels
             self.activities = self.db.activities
             self.activity_history = self.db.activity_history
+            self.steam_releases = self.db.steam_releases
+            self.steam_game_cache = self.db.steam_game_cache
+            self.steam_notification_settings = self.db.steam_notification_settings
+            self.steam_notification_history = self.db.steam_notification_history
             # Testa a conexão
             self.client.server_info()
             logging.info("Conexão com MongoDB estabelecida com sucesso!")
@@ -182,7 +190,11 @@ class Database:
             return None
 
     async def add_monitored_channel(
-        self, discord_id: str, channel: MonitoredChannel
+        self,
+        discord_id: str,
+        channel: MonitoredChannel,
+        notification_channel_id: Optional[int] = None,
+        mention: bool = False,
     ) -> bool:
         """Adiciona um canal para monitoramento na coleção `monitored_channels`.
 
@@ -196,18 +208,43 @@ class Database:
             )
 
             if existing:
-                # Se o usuário já é subscriber, não faz nada
+                # Uma nova chamada também pode atualizar o destino da assinatura.
                 if str(discord_id) in existing.get("subscribers", []):
-                    return False
+                    result = self.monitored_channels.update_one(
+                        {"_id": existing["_id"]},
+                        {
+                            "$set": {
+                                f"subscription_targets.{discord_id}": {
+                                    "channel_id": notification_channel_id,
+                                    "mention": mention,
+                                }
+                            }
+                        },
+                    )
+                    return result.acknowledged
                 # Adiciona o subscriber ao documento do canal
                 result = self.monitored_channels.update_one(
                     {"_id": existing["_id"]},
-                    {"$addToSet": {"subscribers": str(discord_id)}},
+                    {
+                        "$addToSet": {"subscribers": str(discord_id)},
+                        "$set": {
+                            f"subscription_targets.{discord_id}": {
+                                "channel_id": notification_channel_id,
+                                "mention": mention,
+                            }
+                        },
+                    },
                 )
                 return result.modified_count > 0
 
             # Cria novo documento de canal
             channel.subscribers = [str(discord_id)]
+            channel.subscription_targets = {
+                str(discord_id): {
+                    "channel_id": notification_channel_id,
+                    "mention": mention,
+                }
+            }
             result = self.monitored_channels.insert_one(channel.to_dict())
             return result.acknowledged
         except Exception as e:
@@ -237,7 +274,11 @@ class Database:
             # Se há mais de um subscriber, apenas remove o usuário
             if len(doc.get("subscribers", [])) > 1:
                 result = self.monitored_channels.update_one(
-                    {"_id": doc["_id"]}, {"$pull": {"subscribers": str(discord_id)}}
+                    {"_id": doc["_id"]},
+                    {
+                        "$pull": {"subscribers": str(discord_id)},
+                        "$unset": {f"subscription_targets.{discord_id}": ""},
+                    },
                 )
                 return result.modified_count > 0
 
@@ -329,14 +370,17 @@ class Database:
             return []
 
     async def get_user_top_activities(
-        self, user_id: str, limit: int = 10
+        self, user_id: str, limit: int = 10, days: Optional[int] = None
     ) -> List[dict]:
         """Retorna as atividades mais frequentes de um usuário calculando dinamicamente a partir do histórico"""
         try:
             # Usa agregação do MongoDB para calcular totais
+            match = {"user_id": user_id, "end_time": {"$ne": None}}
+            if days:
+                match["start_time"] = {"$gte": datetime.now(UTC) - timedelta(days=days)}
             pipeline = [
                 # Filtra apenas sessões do usuário que foram finalizadas
-                {"$match": {"user_id": user_id, "end_time": {"$ne": None}}},
+                {"$match": match},
                 # Agrupa por atividade e soma as durações
                 {
                     "$group": {
@@ -455,6 +499,17 @@ class Database:
             logging.error(f"Erro ao finalizar sessão de atividade: {str(e)}")
             return False
 
+    async def close_open_activity_sessions(self) -> int:
+        """Fecha sessões deixadas abertas por uma queda ou reinício do bot."""
+        try:
+            result = self.activity_history.update_many(
+                {"end_time": None}, {"$set": {"end_time": datetime.now(UTC)}}
+            )
+            return result.modified_count
+        except Exception as e:
+            logging.error(f"Erro ao recuperar sessões de atividade abertas: {e}")
+            return 0
+
     async def sync_member_profiles(self, members_data: List[dict]) -> int:
         """Sincroniza perfis de membros, criando se não existirem e atualizando display_name"""
         count = 0
@@ -486,21 +541,21 @@ class Database:
             return 0
 
     async def get_global_activity_rank(
-        self, activity_name: str, limit: int = 10
+        self, activity_name: str, limit: int = 10, days: Optional[int] = None
     ) -> List[dict]:
         """Retorna o ranking global de usuários para uma atividade específica calculando dinamicamente"""
         try:
             # Usa agregação do MongoDB para calcular rankings por usuário
+            match = {
+                "activity_name": {"$regex": f"^{activity_name}$", "$options": "i"},
+                "end_time": {"$ne": None},
+            }
+            if days:
+                match["start_time"] = {"$gte": datetime.now(UTC) - timedelta(days=days)}
             pipeline = [
                 # Filtra apenas sessões da atividade específica que foram finalizadas (case-insensitive)
                 {
-                    "$match": {
-                        "activity_name": {
-                            "$regex": f"^{activity_name}$",
-                            "$options": "i",
-                        },
-                        "end_time": {"$ne": None},
-                    }
+                    "$match": match
                 },
                 # Agrupa por usuário e soma as durações
                 {
@@ -540,13 +595,16 @@ class Database:
             logging.error(f"Erro ao buscar ranking global da atividade: {str(e)}")
             return []
 
-    async def get_top_activities_global(self, limit: int = 10) -> List[dict]:
+    async def get_top_activities_global(self, limit: int = 10, days: Optional[int] = None) -> List[dict]:
         """Retorna as atividades mais realizadas globalmente, ranqueadas por tempo total"""
         try:
             # Usa agregação do MongoDB para calcular totais por atividade
+            match = {"end_time": {"$ne": None}}
+            if days:
+                match["start_time"] = {"$gte": datetime.now(UTC) - timedelta(days=days)}
             pipeline = [
                 # Filtra apenas sessões finalizadas
-                {"$match": {"end_time": {"$ne": None}}},
+                {"$match": match},
                 # Agrupa por atividade e soma as durações
                 {
                     "$group": {
@@ -594,13 +652,16 @@ class Database:
             logging.error(f"Erro ao buscar ranking global de atividades: {str(e)}")
             return []
 
-    async def get_top_members_by_activity_time(self, limit: int = 10) -> List[dict]:
+    async def get_top_members_by_activity_time(self, limit: int = 10, days: Optional[int] = None) -> List[dict]:
         """Retorna os membros ranqueados por tempo total em atividades"""
         try:
             # Usa agregação do MongoDB para calcular totais por usuário
+            match = {"end_time": {"$ne": None}}
+            if days:
+                match["start_time"] = {"$gte": datetime.now(UTC) - timedelta(days=days)}
             pipeline = [
                 # Filtra apenas sessões finalizadas
-                {"$match": {"end_time": {"$ne": None}}},
+                {"$match": match},
                 # Agrupa por usuário e soma as durações
                 {
                     "$group": {
@@ -662,6 +723,103 @@ class Database:
             logging.error(f"Erro ao buscar ranking de membros por atividade: {str(e)}")
             return []
 
+    async def upsert_steam_release(self, release: dict) -> bool:
+        """Armazena um lançamento público da Steam no cache local."""
+        try:
+            release["updated_at"] = datetime.now(UTC)
+            result = self.steam_releases.update_one(
+                {"appid": int(release["appid"])},
+                {"$set": release, "$setOnInsert": {"created_at": datetime.now(UTC)}},
+                upsert=True,
+            )
+            return result.acknowledged
+        except Exception as e:
+            logging.error("Erro ao salvar lançamento Steam: %s", e)
+            return False
+
+    async def get_steam_releases(self, limit: int = 50) -> List[dict]:
+        try:
+            releases = list(self.steam_releases.find({"is_upcoming": True}))
+            distant = datetime.max.replace(tzinfo=UTC)
+
+            def release_key(release: dict):
+                value = release.get("release_timestamp")
+                if value and value.tzinfo is None:
+                    value = value.replace(tzinfo=UTC)
+                    release["release_timestamp"] = value
+                return value or distant, release["name"]
+
+            releases.sort(key=release_key)
+            return releases[:limit]
+        except Exception as e:
+            logging.error("Erro ao buscar lançamentos Steam: %s", e)
+            return []
+
+    async def get_steam_game_cache(self, name: str) -> Optional[dict]:
+        try:
+            return self.steam_game_cache.find_one({"normalized_name": name.casefold()})
+        except Exception as e:
+            logging.error("Erro ao consultar cache Steam: %s", e)
+            return None
+
+    async def upsert_steam_game_cache(self, game: dict) -> bool:
+        try:
+            game["normalized_name"] = game["name"].casefold()
+            game["updated_at"] = datetime.now(UTC)
+            result = self.steam_game_cache.update_one(
+                {"normalized_name": game["normalized_name"]}, {"$set": game}, upsert=True
+            )
+            return result.acknowledged
+        except Exception as e:
+            logging.error("Erro ao atualizar cache Steam: %s", e)
+            return False
+
+    async def get_steam_notification_settings(self, guild_id: str) -> Optional[dict]:
+        try:
+            return self.steam_notification_settings.find_one({"guild_id": str(guild_id)})
+        except Exception as e:
+            logging.error("Erro ao buscar configuração Steam: %s", e)
+            return None
+
+    async def set_steam_notification_settings(self, guild_id: str, settings: dict) -> bool:
+        try:
+            settings.update({"guild_id": str(guild_id), "updated_at": datetime.now(UTC)})
+            result = self.steam_notification_settings.update_one(
+                {"guild_id": str(guild_id)}, {"$set": settings}, upsert=True
+            )
+            return result.acknowledged
+        except Exception as e:
+            logging.error("Erro ao salvar configuração Steam: %s", e)
+            return False
+
+    async def get_active_steam_notification_settings(self) -> List[dict]:
+        try:
+            return list(self.steam_notification_settings.find({"enabled": True}))
+        except Exception as e:
+            logging.error("Erro ao buscar configurações Steam ativas: %s", e)
+            return []
+
+    async def was_steam_release_notified(self, guild_id: str, appid: int) -> bool:
+        try:
+            return self.steam_notification_history.find_one(
+                {"guild_id": str(guild_id), "appid": int(appid)}
+            ) is not None
+        except Exception as e:
+            logging.error("Erro ao consultar histórico Steam: %s", e)
+            return True
+
+    async def mark_steam_release_notified(self, guild_id: str, appid: int) -> bool:
+        try:
+            result = self.steam_notification_history.update_one(
+                {"guild_id": str(guild_id), "appid": int(appid)},
+                {"$setOnInsert": {"notified_at": datetime.now(UTC)}},
+                upsert=True,
+            )
+            return result.acknowledged
+        except Exception as e:
+            logging.error("Erro ao marcar notificação Steam: %s", e)
+            return False
+
     def initialize_collections(self):
         """Inicializa as coleções necessárias se não existirem"""
         try:
@@ -680,6 +838,17 @@ class Database:
                 [("user_id", 1), ("activity_name", 1), ("end_time", 1)]
             )
             self.activity_history.create_index("start_time")
+
+            # Catálogo Steam e preferências de notificação por servidor
+            self.steam_releases.create_index("appid", unique=True)
+            self.steam_releases.create_index(
+                [("is_upcoming", 1), ("release_timestamp", 1)]
+            )
+            self.steam_game_cache.create_index("normalized_name", unique=True)
+            self.steam_notification_settings.create_index("guild_id", unique=True)
+            self.steam_notification_history.create_index(
+                [("guild_id", 1), ("appid", 1)], unique=True
+            )
 
             logging.info("Índices do banco de dados criados/atualizados com sucesso!")
         except Exception as e:

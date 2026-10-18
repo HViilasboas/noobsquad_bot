@@ -103,13 +103,23 @@ class ChannelMonitor:
                 return None
             # Verifica se o canal está ao vivo
             try:
-                streams = self.twitch.get_streams(user_login=[channel.channel_name])['data']
+                streams = [
+                    stream
+                    async for stream in self.twitch.get_streams(
+                        user_login=[channel.channel_name], first=1
+                    )
+                ]
             except Exception as e:
                 logging.warning(f"Erro na chamada Twitch get_streams: {e}. Tentando reautenticar e repetir.")
                 # Tenta reautenticar uma vez e repetir
                 if await self.ensure_twitch_authenticated():
                     try:
-                        streams = self.twitch.get_streams(user_login=[channel.channel_name])['data']
+                        streams = [
+                            stream
+                            async for stream in self.twitch.get_streams(
+                                user_login=[channel.channel_name], first=1
+                            )
+                        ]
                     except Exception as e2:
                         logging.error(f"Falha após reautenticar ao chamar get_streams: {e2}")
                         return None
@@ -117,7 +127,7 @@ class ChannelMonitor:
                     return None
 
             is_live = bool(streams)
-            stream_id = streams[0]['id'] if streams else None
+            stream_id = streams[0].id if streams else None
 
             # Se o status da live mudou
             if is_live != channel.is_live or (is_live and stream_id != channel.last_stream_id):
@@ -125,11 +135,12 @@ class ChannelMonitor:
                     stream = streams[0]
                     return {
                         'type': 'live',
-                        'title': stream['title'],
+                        'title': stream.title,
                         'url': f'https://twitch.tv/{channel.channel_name}',
-                        'thumbnail': stream['thumbnail_url'].replace('{width}', '320').replace('{height}', '180'),
+                        'thumbnail': stream.thumbnail_url.replace('{width}', '320').replace('{height}', '180'),
                         'stream_id': stream_id
                     }
+                return {"type": "offline", "stream_id": None}
             return None
         except Exception as e:
             logging.error(f"Erro ao verificar canal Twitch {channel.channel_name}: {str(e)}")
@@ -229,9 +240,9 @@ class ChannelMonitor:
             if users:
                 user = users[0]
                 return {
-                    'id': user['id'],
-                    'name': user['login'],
-                    'display_name': user['display_name']
+                    'id': user.id,
+                    'name': user.login,
+                    'display_name': user.display_name
                 }
             return None
         except Exception as e:

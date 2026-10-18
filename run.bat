@@ -6,6 +6,8 @@ set "VENV_DIR=%CD%\.venv"
 
 call :ensure_mongodb
 if errorlevel 1 exit /b 1
+call :ensure_mediamtx
+if errorlevel 1 exit /b 1
 
 :start
 if exist "rebuild.flag" (
@@ -85,6 +87,22 @@ for /l %%I in (1,1,60) do (
 echo [ERRO] MongoDB nao ficou saudavel em 120 segundos.
 docker compose logs --tail 30 mongodb
 exit /b 1
+
+:ensure_mediamtx
+echo [STREAM] Iniciando o servidor MediaMTX...
+docker compose up -d mediamtx || (
+    echo [ERRO] Nao foi possivel iniciar o MediaMTX.
+    exit /b 1
+)
+findstr /r /c:"^STREAM_DOMAIN=." .env >nul 2>&1
+if not errorlevel 1 (
+    echo [STREAM] Iniciando o proxy HTTPS do Caddy...
+    docker compose up -d caddy || (
+        echo [ERRO] Nao foi possivel iniciar o Caddy.
+        exit /b 1
+    )
+)
+exit /b 0
 
 :start_docker_desktop
 if exist "%ProgramFiles%\Docker\Docker\Docker Desktop.exe" (

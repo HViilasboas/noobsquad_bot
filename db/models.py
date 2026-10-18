@@ -1,6 +1,6 @@
 from datetime import datetime, UTC
 from typing import List, Dict, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -97,12 +97,15 @@ class MonitoredChannel:
     last_video_id: Optional[str] = None
     last_stream_id: Optional[str] = None
     is_live: bool = False
-    added_at: datetime = datetime.now(UTC)  # Usando UTC de forma explícita
+    added_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     subscribers: Optional[List[str]] = None
+    subscription_targets: Optional[Dict[str, Dict]] = None
 
     def __post_init__(self):
         if self.subscribers is None:
             self.subscribers = []
+        if self.subscription_targets is None:
+            self.subscription_targets = {}
 
     @classmethod
     def from_dict(cls, data: Dict) -> "MonitoredChannel":
@@ -116,6 +119,7 @@ class MonitoredChannel:
             is_live=data.get("is_live", False),
             added_at=data.get("added_at", datetime.now(UTC)),
             subscribers=data.get("subscribers", []),
+            subscription_targets=data.get("subscription_targets", {}),
         )
 
     def to_dict(self) -> Dict:
@@ -129,6 +133,7 @@ class MonitoredChannel:
             "is_live": self.is_live,
             "added_at": self.added_at,
             "subscribers": self.subscribers or [],
+            "subscription_targets": self.subscription_targets or {},
         }
 
 

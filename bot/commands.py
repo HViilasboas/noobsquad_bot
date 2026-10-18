@@ -6,5 +6,6 @@ Todos os comandos foram organizados em módulos separados por responsabilidade.
 from .commands_music import MusicCommands
 from .commands_monitor import MonitorCommands
 from .commands_help import HelpCommands
+from .commands_stream import StreamCommands
 
-__all__ = ['MusicCommands', 'MonitorCommands', 'HelpCommands']
+__all__ = ['MusicCommands', 'MonitorCommands', 'HelpCommands', 'StreamCommands']

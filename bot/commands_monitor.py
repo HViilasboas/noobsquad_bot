@@ -1,4 +1,5 @@
 import logging
+from typing import Literal, Optional
 import discord
 from discord.ext import commands
 from config.settings import NOTIFICATION_CHANNEL_ID
@@ -31,8 +32,10 @@ class MonitorCommands(commands.Cog):
         """Chamado quando o Cog é descarregado"""
         logging.info("Monitor descarregado")
 
-    @commands.command(name='monitorar_youtube')
-    async def monitor_youtube(self, ctx, *, channel_input: str):
+    @commands.hybrid_command(name='monitorar_youtube', description='Monitora um canal do YouTube')
+    async def monitor_youtube(self, ctx, channel_input: str,
+                              destino: Optional[discord.TextChannel] = None,
+                              mencionar: bool = False):
         """Adiciona um canal do YouTube para monitoramento
         Uso: !monitorar_youtube <url_do_canal ou @nome>"""
         try:
@@ -58,11 +61,14 @@ class MonitorCommands(commands.Cog):
             )
 
             # Adiciona ao banco de dados (coleção separada)
-            success = await db.add_monitored_channel(str(ctx.author.id), channel)
+            target = destino or ctx.channel
+            success = await db.add_monitored_channel(
+                str(ctx.author.id), channel, target.id, mencionar
+            )
             if success:
                 embed = discord.Embed(
                     title="✅ Canal Adicionado!",
-                    description=f"Agora monitorando: **{channel.channel_name}**\nVocê receberá notificações de novos vídeos.",
+                    description=f"Agora monitorando: **{channel.channel_name}**\nDestino: {target.mention}",
                     color=0x00ff00
                 )
                 await ctx.send(embed=embed)
@@ -73,8 +79,10 @@ class MonitorCommands(commands.Cog):
             logging.error(f"Erro ao adicionar canal YouTube: {str(e)}")
             await ctx.send("❌ Ocorreu um erro ao adicionar o canal.")
 
-    @commands.command(name='monitorar_twitch')
-    async def monitor_twitch(self, ctx, channel_name: str):
+    @commands.hybrid_command(name='monitorar_twitch', description='Monitora um canal da Twitch')
+    async def monitor_twitch(self, ctx, channel_name: str,
+                             destino: Optional[discord.TextChannel] = None,
+                             mencionar: bool = False):
         """Adiciona um canal da Twitch para monitoramento
         Uso: !monitorar_twitch <nome_do_canal>"""
         try:
@@ -94,11 +102,14 @@ class MonitorCommands(commands.Cog):
             )
 
             # Adiciona ao banco de dados
-            success = await db.add_monitored_channel(str(ctx.author.id), channel)
+            target = destino or ctx.channel
+            success = await db.add_monitored_channel(
+                str(ctx.author.id), channel, target.id, mencionar
+            )
             if success:
                 embed = discord.Embed(
                     title="✅ Canal Adicionado!",
-                    description=f"Agora monitorando: **{channel_info['display_name']}**\nVocê receberá notificações quando o canal estiver ao vivo.",
+                    description=f"Agora monitorando: **{channel_info['display_name']}**\nDestino: {target.mention}",
                     color=0x6441a5
                 )
                 await ctx.send(embed=embed)
@@ -109,7 +120,7 @@ class MonitorCommands(commands.Cog):
             logging.error(f"Erro ao adicionar canal Twitch: {str(e)}")
             await ctx.send("❌ Ocorreu um erro ao adicionar o canal Twitch.")
 
-    @commands.command(name='listar_monitoramento')
+    @commands.hybrid_command(name='listar_monitoramento', description='Lista suas assinaturas de monitoramento')
     async def list_monitored(self, ctx):
         """Lista todos os canais monitorados pelo usuário"""
         try:
@@ -144,8 +155,10 @@ class MonitorCommands(commands.Cog):
             logging.error(f"Erro ao listar canais: {str(e)}")
             await ctx.send("❌ Ocorreu um erro ao listar os canais.")
 
-    @commands.command(name='remover_monitoramento')
-    async def remove_monitored(self, ctx, platform: str, *, channel_name: str):
+    @commands.hybrid_command(name='remover_monitoramento', description='Remove uma assinatura de monitoramento')
+    async def remove_monitored(
+        self, ctx, platform: Literal['youtube', 'twitch'], channel_name: str
+    ):
         """Remove um canal do monitoramento
         Uso: !remover_monitoramento <youtube|twitch> <nome_do_canal>"""
         if platform.lower() not in ['youtube', 'twitch']:
